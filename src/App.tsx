@@ -238,7 +238,8 @@ function App() {
       
       const minDate = sortedDates[0]
       const maxDate = sortedDates[sortedDates.length - 1]
-      const dateRange = minDate && maxDate ? 
+      const dateRange = minDate && maxDate && 
+        !isNaN(minDate.getTime()) && !isNaN(maxDate.getTime()) ? 
         `${minDate.toLocaleDateString()} to ${maxDate.toLocaleDateString()}` : 
         'Invalid range'
       
@@ -561,7 +562,8 @@ function App() {
           
           const minDate = sortedDates[0]
           const maxDate = sortedDates[sortedDates.length - 1]
-          const dateRange = minDate && maxDate ? 
+          const dateRange = minDate && maxDate && 
+            !isNaN(minDate.getTime()) && !isNaN(maxDate.getTime()) ? 
             `${minDate.toLocaleDateString()} to ${maxDate.toLocaleDateString()}` : 
             'Invalid range'
           
@@ -797,7 +799,7 @@ function App() {
       const selectedTimeSeriesData = selectedIndices
         .map(index => {
           const date = column.dateValues![index]
-          return date ? {
+          return (date && date instanceof Date && !isNaN(date.getTime())) ? {
             date: date.toLocaleDateString(),
             value: 1,
             originalDate: date
@@ -893,7 +895,7 @@ function App() {
     selectedIndices.forEach(index => {
       const date = dateColumn.dateValues![index]
       const value = Number(numericColumn.values[index])
-      if (date && !isNaN(value)) {
+      if (date && date instanceof Date && !isNaN(date.getTime()) && !isNaN(value)) {
         timeSeriesData.push({
           date: date.toLocaleDateString(),
           value,
@@ -1224,7 +1226,9 @@ function App() {
                                   htmlFor={`${columnIndex}-${rowIndex}`}
                                   className="text-xs flex-1 cursor-pointer truncate"
                                 >
-                                  {column.type === 'date' && column.dateValues?.[rowIndex] 
+                                  {column.type === 'date' && column.dateValues?.[rowIndex] && 
+                                   column.dateValues[rowIndex] instanceof Date && 
+                                   !isNaN(column.dateValues[rowIndex]!.getTime())
                                     ? column.dateValues[rowIndex]!.toLocaleDateString()
                                     : String(value)
                                   }
@@ -1456,11 +1460,21 @@ function App() {
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Earliest:</span>
-                          <span className="font-medium">{(column.stats.min as Date)?.toLocaleDateString()}</span>
+                          <span className="font-medium">
+                            {(column.stats.min as Date) instanceof Date && !isNaN((column.stats.min as Date).getTime())
+                              ? (column.stats.min as Date).toLocaleDateString()
+                              : 'Invalid date'
+                            }
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Latest:</span>
-                          <span className="font-medium">{(column.stats.max as Date)?.toLocaleDateString()}</span>
+                          <span className="font-medium">
+                            {(column.stats.max as Date) instanceof Date && !isNaN((column.stats.max as Date).getTime())
+                              ? (column.stats.max as Date).toLocaleDateString()
+                              : 'Invalid date'
+                            }
+                          </span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Pattern:</span>
