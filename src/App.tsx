@@ -57,6 +57,37 @@ function App() {
   const [processingStep, setProcessingStep] = useState('')
   const [fileName, setFileName] = useKV<string>('file-name', '')
   const [showDataSelection, setShowDataSelection] = useState(false)
+  const [hasError, setHasError] = useState(false)
+
+  // Safe data access with fallbacks
+  const safeUploadedData = Array.isArray(uploadedData) ? uploadedData : []
+  const safeInsights = Array.isArray(insights) ? insights : []
+
+  // Error boundary for component
+  if (hasError) {
+    return (
+      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+        <Card className="max-w-md mx-auto">
+          <CardHeader>
+            <CardTitle className="text-center text-destructive">Application Error</CardTitle>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-muted-foreground">
+              An error occurred while processing your data. Please try refreshing the page or uploading your file again.
+            </p>
+            <Button onClick={() => {
+              setHasError(false)
+              setUploadedData([])
+              setInsights([])
+              setFileName('')
+            }}>
+              Reset Application
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   // Enhanced helper function to detect and parse various date formats
   const parseDate = useCallback((value: any): Date | null => {
@@ -218,9 +249,14 @@ function App() {
 
   // Calculate statistics for selected data points only
   const calculateStats = useCallback((column: DataColumn): DataColumn['stats'] => {
+    // Add null check for column parameter
+    if (!column || !column.selectedRows || !column.values) {
+      return { count: 0 }
+    }
+    
     const selectedIndices = column.selectedRows
-      ?.map((selected, index) => selected ? index : -1)
-      .filter(index => index !== -1) || []
+      .map((selected, index) => selected ? index : -1)
+      .filter(index => index !== -1)
     
     if (selectedIndices.length === 0) {
       return { count: 0 }
@@ -370,8 +406,17 @@ function App() {
   const analyzeData = useCallback((columns: DataColumn[]): Insight[] => {
     const newInsights: Insight[] = []
     
+    // Filter out null/undefined columns and ensure they have required properties
+    const validColumns = columns.filter(col => 
+      col && 
+      col.values && 
+      col.selectedRows && 
+      col.name && 
+      col.type
+    )
+    
     // Filter columns to only include those with selected data
-    const activeColumns = columns.filter(col => {
+    const activeColumns = validColumns.filter(col => {
       const selectedCount = col.selectedRows?.filter(Boolean).length || 0
       return selectedCount > 0
     })
@@ -688,45 +733,89 @@ function App() {
 
   // Update data selection and recalculate insights
   const updateDataSelection = useCallback((updatedColumns: DataColumn[]) => {
-    // Recalculate stats for all columns based on selected rows
-    const columnsWithUpdatedStats = updatedColumns.map(col => ({
-      ...col,
-      stats: calculateStats(col)
-    }))
-    
-    // Regenerate insights based on selected data
-    const newInsights = analyzeData(columnsWithUpdatedStats)
-    
-    setUploadedData(columnsWithUpdatedStats)
-    setInsights(newInsights)
-    
-    const selectedCount = columnsWithUpdatedStats[0]?.selectedRows?.filter(Boolean).length || 0
-    const totalCount = columnsWithUpdatedStats[0]?.originalRowCount || 0
-    
-    toast.success(`Analysis updated with ${selectedCount}/${totalCount} selected data points`)
+    try {
+      // Filter out any null/undefined columns and add safety checks
+      const validColumns = updatedColumns.filter(col => col && col.values && col.selectedRows)
+      
+      if (validColumns.length === 0) {
+        console.warn('No valid columns found for data selection update')
+        return
+      }
+      
+      // Recalculate stats for all columns based on selected rows
+      const columnsWithUpdatedStats = validColumns.map(col => ({
+        ...col,
+        stats: calculateStats(col)
+      }))
+      
+      // Regenerate insights based on selected data
+      const newInsights = analyzeData(columnsWithUpdatedStats)
+      
+      setUploadedData(columnsWithUpdatedStats)
+      setInsights(newInsights)
+      
+      const selectedCount = columnsWithUpdatedStats[0]?.selectedRows?.filter(Boolean).length || 0
+      const totalCount = columnsWithUpdatedStats[0]?.originalRowCount || 0
+      
+      toast.success(`Analysis updated with ${selectedCount}/${totalCount} selected data points`)
+    } catch (error) {
+      console.error('Error updating data selection:', error)
+      toast.error('Error updating data selection. Please try again.')
+      setHasError(true)
+    }
   }, [calculateStats, analyzeData, setUploadedData, setInsights])
 
   // Toggle row selection for a specific column
   const toggleRowSelection = useCallback((columnIndex: number, rowIndex: number) => {
-    const updatedData = [...uploadedData]
-    if (updatedData[columnIndex].selectedRows) {
-      updatedData[columnIndex].selectedRows![rowIndex] = !updatedData[columnIndex].selectedRows![rowIndex]
-      updateDataSelection(updatedData)
+    try {
+      if (!safeUploadedData || safeUploadedData.length === 0 || columnIndex >= safeUploadedData.length || columnIndex < 0) {
+        console.warn('Invalid column index or no data available')
+        return
+      }
+      
+      const updatedData = [...safeUploadedData]
+      const column = updatedData[columnIndex]
+      
+      if (column && column.selectedRows && rowIndex >= 0 && rowIndex < column.selectedRows.length) {
+        column.selectedRows[rowIndex] = !column.selectedRows[rowIndex]
+        updateDataSelection(updatedData)
+      }
+    } catch (error) {
+      console.error('Error toggling row selection:', error)
+      setHasError(true)
     }
-  }, [uploadedData, updateDataSelection])
+  }, [safeUploadedData, updateDataSelection])
 
   // Toggle all rows for a column
   const toggleAllRows = useCallback((columnIndex: number, selectAll: boolean) => {
-    const updatedData = [...uploadedData]
-    updatedData[columnIndex].selectedRows = new Array(updatedData[columnIndex].values.length).fill(selectAll)
-    updateDataSelection(updatedData)
-  }, [uploadedData, updateDataSelection])
+    if (!safeUploadedData || safeUploadedData.length === 0 || columnIndex >= safeUploadedData.length || columnIndex < 0) {
+      console.warn('Invalid column index or no data available')
+      return
+    }
+    
+    const updatedData = [...safeUploadedData]
+    const column = updatedData[columnIndex]
+    
+    if (column && column.values) {
+      column.selectedRows = new Array(column.values.length).fill(selectAll)
+      updateDataSelection(updatedData)
+    }
+  }, [safeUploadedData, updateDataSelection])
 
   // Smart selection presets
   const applySmartSelection = useCallback((type: 'recent' | 'outliers' | 'complete') => {
-    const updatedData = [...uploadedData]
+    if (!safeUploadedData || safeUploadedData.length === 0) {
+      console.warn('No data available for smart selection')
+      return
+    }
+    
+    const updatedData = [...safeUploadedData]
     
     updatedData.forEach((column, colIndex) => {
+      if (!column || !column.values) {
+        return // Skip invalid columns
+      }
+      
       if (type === 'recent' && column.type === 'date' && column.dateValues) {
         // Select most recent 50% of data
         const validDateIndices = column.dateValues
@@ -776,9 +865,18 @@ function App() {
     const selectionType = type === 'recent' ? 'recent data' : 
                          type === 'outliers' ? 'outlier values' : 'complete records'
     toast.success(`Applied ${selectionType} selection`)
-  }, [uploadedData, updateDataSelection])
+  }, [safeUploadedData, updateDataSelection])
 
   const generateChart = (column: DataColumn, chartType: 'bar' | 'pie' | 'line' = 'bar') => {
+    // Add safety checks for column parameter
+    if (!column || !column.selectedRows || !column.values) {
+      return (
+        <div className="h-48 flex items-center justify-center text-muted-foreground">
+          Invalid column data
+        </div>
+      )
+    }
+    
     // Filter data based on selected rows
     const selectedIndices = column.selectedRows
       ?.map((selected, index) => selected ? index : -1)
@@ -874,8 +972,16 @@ function App() {
   
   // Generate time series chart combining date and numeric columns with selected data
   const generateTimeSeriesChart = (dateColumn: DataColumn, numericColumn: DataColumn) => {
-    if (!dateColumn.dateValues || dateColumn.values.length !== numericColumn.values.length) {
-      return null
+    // Add safety checks for both columns
+    if (!dateColumn || !numericColumn || 
+        !dateColumn.dateValues || !dateColumn.selectedRows || !dateColumn.values ||
+        !numericColumn.selectedRows || !numericColumn.values ||
+        dateColumn.values.length !== numericColumn.values.length) {
+      return (
+        <div className="h-60 flex items-center justify-center text-muted-foreground">
+          Invalid or mismatched column data
+        </div>
+      )
     }
     
     // Get indices of rows selected in both columns
@@ -947,7 +1053,7 @@ function App() {
             <h1>Data Analysis Report</h1>
             <p>Generated from: ${fileName}</p>
           </div>
-          ${insights.map(insight => `
+          ${safeInsights.map(insight => `
             <div class="insight">
               <h3>${insight.title}</h3>
               <p>${insight.description}</p>
@@ -970,7 +1076,7 @@ function App() {
     URL.revokeObjectURL(url)
     
     toast.success('Infographic exported successfully!')
-  }, [fileName, insights])
+  }, [fileName, safeInsights])
 
   const clearData = useCallback(() => {
     setUploadedData([])
@@ -979,7 +1085,7 @@ function App() {
     toast.success('Data cleared successfully!')
   }, [setUploadedData, setInsights, setFileName])
 
-  if (uploadedData.length === 0) {
+  if (safeUploadedData.length === 0) {
     return (
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-4xl mx-auto">
@@ -1102,7 +1208,7 @@ function App() {
 
           <TabsContent value="insights" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {insights.map((insight, index) => (
+              {safeInsights.map((insight, index) => (
                 <Card key={index}>
                   <CardHeader>
                     <div className="flex items-start justify-between">
@@ -1168,7 +1274,7 @@ function App() {
 
               {/* Column Selection Overview */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {uploadedData.map((column, columnIndex) => {
+                {safeUploadedData.filter(column => column && column.values && column.selectedRows).map((column, columnIndex) => {
                   const selectedCount = column.selectedRows?.filter(Boolean).length || 0
                   const totalCount = column.values.length
                   const selectionPercentage = Math.round((selectedCount / totalCount) * 100)
@@ -1270,8 +1376,8 @@ function App() {
 
           <TabsContent value="timeseries" className="space-y-6">
             {(() => {
-              const dateColumns = uploadedData.filter(col => col.type === 'date')
-              const numericColumns = uploadedData.filter(col => col.type === 'number')
+              const dateColumns = safeUploadedData.filter(col => col && col.type === 'date' && col.values && col.selectedRows)
+              const numericColumns = safeUploadedData.filter(col => col && col.type === 'number' && col.values && col.selectedRows)
               
               if (dateColumns.length === 0) {
                 return (
@@ -1370,7 +1476,7 @@ function App() {
           </TabsContent>
           <TabsContent value="charts" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {uploadedData.filter(col => col.type === 'number').map((column, index) => (
+              {safeUploadedData.filter(col => col && col.type === 'number' && col.values && col.selectedRows).map((column, index) => (
                 <Card key={index}>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1396,7 +1502,7 @@ function App() {
                 </Card>
               ))}
               
-              {uploadedData.filter(col => col.type === 'date').map((column, index) => (
+              {safeUploadedData.filter(col => col && col.type === 'date' && col.values && col.selectedRows).map((column, index) => (
                 <Card key={`date-chart-${index}`}>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1424,7 +1530,7 @@ function App() {
 
           <TabsContent value="data" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {uploadedData.map((column, index) => (
+              {safeUploadedData.filter(column => column && column.values && column.stats).map((column, index) => (
                 <Card key={index}>
                   <CardHeader>
                     <CardTitle className="text-lg">{column.name}</CardTitle>
