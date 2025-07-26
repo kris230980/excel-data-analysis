@@ -62,6 +62,7 @@ interface FilterConfig {
     columnIndex: number
     sensitivity: number // 1-3 (1=conservative, 3=aggressive)
     method: 'iqr' | 'zscore' | 'modified_zscore'
+    selectOutliers: boolean // true=select outliers, false=exclude outliers
   }
   valueRange?: {
     columnIndex: number
@@ -440,7 +441,9 @@ function App() {
       if (isNaN(numVal) || !isFinite(numVal)) return column.selectedRows?.[index] ?? true
       
       const isOutlier = outlierFlags[outlierIndex++]
-      return isOutlier && (column.selectedRows?.[index] ?? true)
+      // Select outliers if selectOutliers is true, otherwise exclude them
+      const shouldSelect = config.selectOutliers ? isOutlier : !isOutlier
+      return shouldSelect && (column.selectedRows?.[index] ?? true)
     })
     
     updatedData[config.columnIndex] = updatedColumn
@@ -530,7 +533,7 @@ function App() {
       
       toast.success('Filters applied successfully')
     }
-  }, [safeFilterConfig, safeUploadedData, applyAdvancedFilters, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
+  }, [safeFilterConfig, safeUploadedData, applyAdvancedFilters, calculateStats, setFilterConfig, setUploadedData, setInsights])
 
   const analyzeData = useCallback((columns: DataColumn[]): Insight[] => {
     const newInsights: Insight[] = []
@@ -657,7 +660,7 @@ function App() {
     }
 
     return newInsights.slice(0, 8) // Limit to 8 insights
-  }, [])
+  }, [generateTimeSeriesInsights])
 
   // Generate time-series insights
   const generateTimeSeriesInsights = useCallback((dateColumns: DataColumn[], numericColumns: DataColumn[]): Insight[] => {
@@ -1047,6 +1050,23 @@ function App() {
     
     if (column && column.values) {
       column.selectedRows = new Array(column.values.length).fill(selectAll)
+      updateDataSelection(updatedData)
+    }
+  }, [safeUploadedData, updateDataSelection])
+
+  // Bulk selection by range
+  const selectRowRange = useCallback((columnIndex: number, startRow: number, endRow: number, selected: boolean) => {
+    if (!safeUploadedData || safeUploadedData.length === 0 || columnIndex >= safeUploadedData.length || columnIndex < 0) {
+      return
+    }
+    
+    const updatedData = [...safeUploadedData]
+    const column = updatedData[columnIndex]
+    
+    if (column && column.selectedRows) {
+      for (let i = startRow; i <= endRow && i < column.selectedRows.length; i++) {
+        column.selectedRows[i] = selected
+      }
       updateDataSelection(updatedData)
     }
   }, [safeUploadedData, updateDataSelection])
@@ -1485,6 +1505,60 @@ function App() {
 
           <TabsContent value="selection" className="space-y-6">
             <div className="flex flex-col gap-6">
+              {/* Selection Overview and Controls */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Funnel className="w-5 h-5" />
+                      <CardTitle>Data Point Selection</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">
+                        {(() => {
+                          const totalSelected = safeUploadedData.reduce((sum, col) => 
+                            sum + (col?.selectedRows?.filter(Boolean).length || 0), 0
+                          )
+                          const totalPoints = safeUploadedData.reduce((sum, col) => 
+                            sum + (col?.values?.length || 0), 0
+                          )
+                          return `${totalSelected}/${totalPoints} points selected`
+                        })()}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const updatedData = safeUploadedData.map(col => ({
+                            ...col,
+                            selectedRows: new Array(col.values?.length || 0).fill(true)
+                          }))
+                          updateDataSelection(updatedData)
+                        }}
+                      >
+                        Select All
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const updatedData = safeUploadedData.map(col => ({
+                            ...col,
+                            selectedRows: new Array(col.values?.length || 0).fill(false)
+                          }))
+                          updateDataSelection(updatedData)
+                        }}
+                      >
+                        Clear All
+                      </Button>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Select specific data points to focus your analysis. Only selected points will be used for statistics and insights generation.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
               {/* Advanced Filters Section */}
               <Card>
                 <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
@@ -1620,7 +1694,7 @@ function App() {
                             <TrendUp className="w-4 h-4" />
                             <Label className="text-sm font-medium">Statistical Outlier Detection</Label>
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                             <Select
                               value={safeFilterConfig.outlierDetection?.columnIndex?.toString() || ''}
                               onValueChange={(value) => {
@@ -1629,7 +1703,8 @@ function App() {
                                   outlierDetection: {
                                     columnIndex,
                                     sensitivity: 2,
-                                    method: 'iqr'
+                                    method: 'iqr',
+                                    selectOutliers: true
                                   }
                                 })
                               }}
@@ -1698,10 +1773,30 @@ function App() {
                                 </div>
                               </div>
                             </div>
+                            <div className="flex items-center space-x-2 pt-6">
+                              <Checkbox
+                                id="select-outliers"
+                                checked={safeFilterConfig.outlierDetection?.selectOutliers ?? true}
+                                onCheckedChange={(checked) => {
+                                  if (safeFilterConfig.outlierDetection) {
+                                    updateFilterConfig({
+                                      outlierDetection: {
+                                        ...safeFilterConfig.outlierDetection,
+                                        selectOutliers: checked as boolean
+                                      }
+                                    })
+                                  }
+                                }}
+                                disabled={!safeFilterConfig.outlierDetection}
+                              />
+                              <Label htmlFor="select-outliers" className="text-xs">
+                                Select outliers
+                              </Label>
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               {safeFilterConfig.outlierDetection && (() => {
                                 const count = safeUploadedData[safeFilterConfig.outlierDetection.columnIndex]?.selectedRows?.filter(Boolean).length || 0
-                                return `${count} outliers selected`
+                                return `${count} data points selected`
                               })()}
                             </div>
                             <Button
@@ -1968,34 +2063,64 @@ function App() {
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {/* Column-level controls */}
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => toggleAllRows(columnIndex, true)}
-                            className="flex-1"
-                          >
-                            <Check className="w-3 h-3 mr-1" />
-                            All
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => toggleAllRows(columnIndex, false)}
-                            className="flex-1"
-                          >
-                            <X className="w-3 h-3 mr-1" />
-                            None
-                          </Button>
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                          <div className="grid grid-cols-2 gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => toggleAllRows(columnIndex, true)}
+                              className="text-xs"
+                            >
+                              <Check className="w-3 h-3 mr-1" />
+                              All
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => toggleAllRows(columnIndex, false)}
+                              className="text-xs"
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              None
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => selectRowRange(columnIndex, 0, Math.floor(column.values.length / 2) - 1, true)}
+                              className="text-xs"
+                            >
+                              First 50%
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => selectRowRange(columnIndex, Math.floor(column.values.length / 2), column.values.length - 1, true)}
+                              className="text-xs"
+                            >
+                              Last 50%
+                            </Button>
+                          </div>
                         </div>
                         
                         <Progress value={selectionPercentage} className="w-full" />
                         
                         {/* Sample data preview with checkboxes */}
                         <div className="space-y-2">
-                          <Label className="text-sm font-medium">Sample Data (First 5 rows):</Label>
-                          <div className="space-y-1 max-h-32 overflow-y-auto">
-                            {column.values.slice(0, 5).map((value, rowIndex) => (
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-medium">Sample Data (First 10 rows):</Label>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowDataSelection(!showDataSelection)}
+                              className="text-xs"
+                            >
+                              {showDataSelection ? 'Hide All' : 'Show All'} Rows
+                            </Button>
+                          </div>
+                          <div className="space-y-1 max-h-64 overflow-y-auto">
+                            {(showDataSelection ? column.values : column.values.slice(0, 10)).map((value, rowIndex) => (
                               <div key={rowIndex} className="flex items-center space-x-2">
                                 <Checkbox
                                   id={`${columnIndex}-${rowIndex}`}
@@ -2006,6 +2131,7 @@ function App() {
                                   htmlFor={`${columnIndex}-${rowIndex}`}
                                   className="text-xs flex-1 cursor-pointer truncate"
                                 >
+                                  <span className="text-muted-foreground mr-2">#{rowIndex + 1}:</span>
                                   {column.type === 'date' && column.dateValues?.[rowIndex] && 
                                    column.dateValues[rowIndex] instanceof Date && 
                                    !isNaN(column.dateValues[rowIndex]!.getTime())
@@ -2013,11 +2139,14 @@ function App() {
                                     : String(value)
                                   }
                                 </Label>
+                                {column.selectedRows?.[rowIndex] && (
+                                  <Check className="w-3 h-3 text-primary" />
+                                )}
                               </div>
                             ))}
-                            {column.values.length > 5 && (
-                              <div className="text-xs text-muted-foreground">
-                                ...and {column.values.length - 5} more rows
+                            {!showDataSelection && column.values.length > 10 && (
+                              <div className="text-xs text-muted-foreground pt-2">
+                                ...and {column.values.length - 10} more rows (click "Show All Rows" to see them)
                               </div>
                             )}
                           </div>
