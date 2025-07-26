@@ -17,7 +17,7 @@ interface DataColumn {
   name: string
   type: 'number' | 'text' | 'date'
   values: any[]
-  dateValues?: Date[] // Parsed dates for date columns
+  dateValues?: (Date | null)[] // Parsed dates for date columns - null for unparseable values
   detectedFormats?: string[] // Formats detected in date columns
   stats?: {
     min?: number | Date
@@ -229,7 +229,7 @@ function App() {
     if (column.type === 'date' && column.dateValues) {
       const selectedDates = selectedIndices
         .map(index => column.dateValues![index])
-        .filter(date => date)
+        .filter((date): date is Date => date !== null)
       
       if (selectedDates.length === 0) return { count: 0 }
       
@@ -302,10 +302,12 @@ function App() {
       }
       
       // Seasonal analysis for monthly/yearly data
-      if (dateCol.dateValues.length >= 12 && (frequency === 'monthly' || frequency === 'yearly')) {
+      if (dateCol.dateValues && dateCol.dateValues.filter(d => d !== null).length >= 12 && (frequency === 'monthly' || frequency === 'yearly')) {
         const monthCounts = new Array(12).fill(0)
         dateCol.dateValues.forEach(date => {
-          monthCounts[date.getMonth()]++
+          if (date) {
+            monthCounts[date.getMonth()]++
+          }
         })
         
         const maxMonth = monthCounts.indexOf(Math.max(...monthCounts))
@@ -509,8 +511,8 @@ function App() {
       const columns: DataColumn[] = headers.map((header, index) => {
         const values = rows.map(row => row[index]).filter(val => val !== undefined && val !== null && val !== '')
         
-        // Try to detect dates first
-        const dateValues: Date[] = []
+        // Try to detect dates first - maintain index alignment
+        const dateValues: (Date | null)[] = []
         const detectedFormats: string[] = []
         let dateCount = 0
         
@@ -532,6 +534,8 @@ function App() {
             } else if (typeof val === 'number') {
               detectedFormats.push('Excel Serial')
             }
+          } else {
+            dateValues.push(null) // Maintain index alignment
           }
         })
         
@@ -551,8 +555,9 @@ function App() {
         
         if (isDateColumn) {
           // This is a date column
-          const sortedDates = [...dateValues].sort((a, b) => a.getTime() - b.getTime())
-          const frequency = analyzeDateFrequency(dateValues)
+          const validDates = dateValues.filter((date): date is Date => date !== null)
+          const sortedDates = [...validDates].sort((a, b) => a.getTime() - b.getTime())
+          const frequency = analyzeDateFrequency(validDates)
           
           const minDate = sortedDates[0]
           const maxDate = sortedDates[sortedDates.length - 1]
@@ -722,10 +727,13 @@ function App() {
     updatedData.forEach((column, colIndex) => {
       if (type === 'recent' && column.type === 'date' && column.dateValues) {
         // Select most recent 50% of data
-        const sortedIndices = column.dateValues
-          .map((date, index) => ({ date, index }))
+        const validDateIndices = column.dateValues
+          .map((date, index) => date ? { date, index } : null)
+          .filter((item): item is NonNullable<typeof item> => item !== null)
+        
+        const sortedIndices = validDateIndices
           .sort((a, b) => b.date.getTime() - a.date.getTime())
-          .slice(0, Math.ceil(column.dateValues.length * 0.5))
+          .slice(0, Math.ceil(validDateIndices.length * 0.5))
           .map(item => item.index)
         
         column.selectedRows = new Array(column.values.length).fill(false)
@@ -787,12 +795,15 @@ function App() {
       if (!column.dateValues) return null
       
       const selectedTimeSeriesData = selectedIndices
-        .map(index => ({
-          date: column.dateValues![index]?.toLocaleDateString() || '',
-          value: 1,
-          originalDate: column.dateValues![index]
-        }))
-        .filter(item => item.originalDate)
+        .map(index => {
+          const date = column.dateValues![index]
+          return date ? {
+            date: date.toLocaleDateString(),
+            value: 1,
+            originalDate: date
+          } : null
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null)
         .sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime())
       
       // Group by time period if too many points
@@ -1214,7 +1225,7 @@ function App() {
                                   className="text-xs flex-1 cursor-pointer truncate"
                                 >
                                   {column.type === 'date' && column.dateValues?.[rowIndex] 
-                                    ? column.dateValues[rowIndex].toLocaleDateString()
+                                    ? column.dateValues[rowIndex]?.toLocaleDateString()
                                     : String(value)
                                   }
                                 </Label>
@@ -1301,7 +1312,7 @@ function App() {
                           </div>
                           <div>
                             <span className="text-muted-foreground">Data Points: </span>
-                            <span className="font-medium">{dateCol.dateValues?.length}</span>
+                            <span className="font-medium">{dateCol.dateValues?.filter(d => d !== null).length}</span>
                           </div>
                         </div>
                       </CardContent>
