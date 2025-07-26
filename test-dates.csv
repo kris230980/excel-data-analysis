@@ -1,0 +1,30 @@
+Date_Various_Formats,Sales,Category,Time_Data
+2024-01-15,1500,ISO Standard,100
+01/16/2024,1200,US MM/DD/YYYY,150
+17.01.2024,1800,European DD.MM.YYYY,200
+2024/01/18,1350,ISO with slashes,175
+January 19 2024,1600,Month name no comma,225
+20 Jan 2024,1400,Short month name,190
+2024-01-21,1700,ISO standard,165
+1/22/2024,1250,Single digit US,140
+23.1.2024,1550,Single digit European,210
+2024.01.24,1450,ISO with dots,185
+01-25-2024,1320,US with dashes,160
+26/01/2024,1680,European DD/MM/YYYY,230
+Feb 15 2024,1800,Month abbreviation,180
+2024-02-16,1950,ISO standard,195
+03/20/2024,1750,US format,205
+21.03.2024,1550,European format,155
+March 22 2024,2400,Month name no comma,240
+2024-03-23,1650,ISO standard,165
+3/24/2024,2200,US single digit,220
+25.3.2024,1900,European single digit,190
+April 1 2024,2100,Month name,210
+2024-04-02,1850,ISO standard,185
+4/3/2024,1400,US format,140
+04.04.2024,2300,European format,230
+May 15 2024,2000,Month name,200
+2024-05-16,1750,ISO standard,175
+5/17/2024,1600,US format,160
+18.05.2024,2250,European format,225
+Jun 20 2024,1950,Short month,195

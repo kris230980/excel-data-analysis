@@ -16,6 +16,7 @@ interface DataColumn {
   type: 'number' | 'text' | 'date'
   values: any[]
   dateValues?: Date[] // Parsed dates for date columns
+  detectedFormats?: string[] // Formats detected in date columns
   stats?: {
     min?: number | Date
     max?: number | Date
@@ -24,6 +25,7 @@ interface DataColumn {
     count: number
     dateRange?: string // For date columns
     frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'irregular'
+    formatSummary?: string // Summary of detected date formats
   }
 }
 
@@ -50,7 +52,7 @@ function App() {
   const [processingStep, setProcessingStep] = useState('')
   const [fileName, setFileName] = useKV<string>('file-name', '')
 
-  // Helper function to detect and parse dates
+  // Enhanced helper function to detect and parse various date formats
   const parseDate = useCallback((value: any): Date | null => {
     if (!value) return null
     
@@ -64,26 +66,116 @@ function App() {
     
     // Handle string dates
     if (typeof value === 'string') {
-      // Try common date formats
-      const datePatterns = [
-        /^\d{4}-\d{2}-\d{2}$/, // YYYY-MM-DD
-        /^\d{2}\/\d{2}\/\d{4}$/, // MM/DD/YYYY
-        /^\d{2}-\d{2}-\d{4}$/, // MM-DD-YYYY
-        /^\d{1,2}\/\d{1,2}\/\d{4}$/, // M/D/YYYY
-        /^\d{4}\/\d{2}\/\d{2}$/, // YYYY/MM/DD
-        /^\d{2}\.\d{2}\.\d{4}$/, // DD.MM.YYYY
+      const cleanValue = value.trim()
+      
+      // Comprehensive date format patterns with explicit parsing
+      const dateFormats = [
+        // ISO and standard formats
+        { pattern: /^\d{4}-\d{2}-\d{2}$/, format: 'YYYY-MM-DD' },
+        { pattern: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, format: 'ISO' },
+        { pattern: /^\d{4}\/\d{2}\/\d{2}$/, format: 'YYYY/MM/DD' },
+        
+        // US formats (MM/DD/YYYY variations)
+        { pattern: /^\d{1,2}\/\d{1,2}\/\d{4}$/, format: 'M/D/YYYY' },
+        { pattern: /^\d{2}\/\d{2}\/\d{4}$/, format: 'MM/DD/YYYY' },
+        { pattern: /^\d{1,2}-\d{1,2}-\d{4}$/, format: 'M-D-YYYY' },
+        { pattern: /^\d{2}-\d{2}-\d{4}$/, format: 'MM-DD-YYYY' },
+        
+        // European formats (DD/MM/YYYY variations)
+        { pattern: /^\d{1,2}\/\d{1,2}\/\d{4}$/, format: 'D/M/YYYY' },
+        { pattern: /^\d{2}\.\d{2}\.\d{4}$/, format: 'DD.MM.YYYY' },
+        { pattern: /^\d{1,2}\.\d{1,2}\.\d{4}$/, format: 'D.M.YYYY' },
+        
+        // Alternative separators
+        { pattern: /^\d{4}\.\d{2}\.\d{2}$/, format: 'YYYY.MM.DD' },
+        { pattern: /^\d{2}\s+\d{2}\s+\d{4}$/, format: 'MM DD YYYY' },
+        
+        // With time components
+        { pattern: /^\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}/, format: 'M/D/YYYY H:MM' },
+        { pattern: /^\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}/, format: 'YYYY-MM-DD H:MM' }
       ]
       
-      const hasDatePattern = datePatterns.some(pattern => pattern.test(value))
-      if (hasDatePattern) {
-        const date = new Date(value)
-        return isNaN(date.getTime()) ? null : date
+      // Try each format pattern
+      for (const { pattern, format } of dateFormats) {
+        if (pattern.test(cleanValue)) {
+          let parsedDate: Date | null = null
+          
+          // Custom parsing for ambiguous formats
+          if (format === 'M/D/YYYY' || format === 'MM/DD/YYYY') {
+            // US format: Month/Day/Year
+            const parts = cleanValue.split('/')
+            if (parts.length === 3) {
+              const month = parseInt(parts[0], 10) - 1 // 0-based month
+              const day = parseInt(parts[1], 10)
+              const year = parseInt(parts[2], 10)
+              
+              // Validate month and day ranges for US format
+              if (month >= 0 && month <= 11 && day >= 1 && day <= 31) {
+                parsedDate = new Date(year, month, day)
+              }
+            }
+          } else if (format === 'D/M/YYYY') {
+            // European format: Day/Month/Year (for ambiguous cases)
+            const parts = cleanValue.split('/')
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10)
+              const month = parseInt(parts[1], 10) - 1 // 0-based month
+              const year = parseInt(parts[2], 10)
+              
+              // Validate day and month ranges for European format
+              if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+                parsedDate = new Date(year, month, day)
+              }
+            }
+          } else if (format === 'DD.MM.YYYY' || format === 'D.M.YYYY') {
+            // European format: Day.Month.Year
+            const parts = cleanValue.split('.')
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10)
+              const month = parseInt(parts[1], 10) - 1 // 0-based month
+              const year = parseInt(parts[2], 10)
+              parsedDate = new Date(year, month, day)
+            }
+          } else {
+            // Let JavaScript's Date constructor handle standard formats
+            parsedDate = new Date(cleanValue)
+          }
+          
+          // Validate the parsed date
+          if (parsedDate && !isNaN(parsedDate.getTime())) {
+            // Additional validation: ensure reasonable date range
+            const year = parsedDate.getFullYear()
+            if (year >= 1900 && year <= 2100) {
+              return parsedDate
+            }
+          }
+        }
       }
       
-      // Try parsing as timestamp
-      const timestamp = Date.parse(value)
+      // Try month names (e.g., "January 15, 2023", "15 Jan 2023")
+      const monthNamePatterns = [
+        /^\w+\s+\d{1,2},?\s+\d{4}$/i, // "January 15, 2023" or "January 15 2023"
+        /^\d{1,2}\s+\w+\s+\d{4}$/i,   // "15 January 2023"
+        /^\w+\s+\d{4}$/i,             // "January 2023"
+      ]
+      
+      for (const pattern of monthNamePatterns) {
+        if (pattern.test(cleanValue)) {
+          const date = new Date(cleanValue)
+          if (!isNaN(date.getTime())) {
+            return date
+          }
+        }
+      }
+      
+      // Final fallback: try Date.parse for any remaining formats
+      const timestamp = Date.parse(cleanValue)
       if (!isNaN(timestamp)) {
-        return new Date(timestamp)
+        const date = new Date(timestamp)
+        const year = date.getFullYear()
+        if (year >= 1900 && year <= 2100) {
+          return date
+        }
       }
     }
     
@@ -129,11 +221,11 @@ function App() {
       const dateRange = dateCol.stats?.dateRange
       const frequency = dateCol.stats?.frequency
       
-      // Date range insight
+      // Date range insight with format information
       insights.push({
         type: 'temporal',
-        title: `${dateCol.name} Time Range`,
-        description: `Your data spans ${dateRange}, with ${frequency} frequency pattern detected`,
+        title: `${dateCol.name} Date Analysis`,
+        description: `Data spans ${dateRange} with ${frequency} frequency. Detected formats: ${dateCol.stats?.formatSummary || 'Various'}`,
         value: dateRange,
         importance: 'high'
       })
@@ -233,6 +325,34 @@ function App() {
     if (dateColumns.length > 0) {
       const timeSeriesInsights = generateTimeSeriesInsights(dateColumns, numericColumns)
       newInsights.push(...timeSeriesInsights)
+      
+      // Add date format detection summary
+      const allFormats = dateColumns
+        .flatMap(col => col.detectedFormats || [])
+        .reduce((acc, format) => {
+          acc[format] = (acc[format] || 0) + 1
+          return acc
+        }, {} as Record<string, number>)
+      
+      const uniqueFormats = Object.keys(allFormats)
+      const formatsList = uniqueFormats.join(', ')
+      
+      if (formatsList && uniqueFormats.length > 1) {
+        newInsights.push({
+          type: 'summary',
+          title: 'Mixed Date Format Detection',
+          description: `Successfully detected and unified ${uniqueFormats.length} different date formats: ${formatsList}. All dates normalized for consistent analysis.`,
+          value: `${uniqueFormats.length} formats`,
+          importance: 'high'
+        })
+      } else if (formatsList) {
+        newInsights.push({
+          type: 'summary',
+          title: 'Date Format Detection',
+          description: `Consistent date format detected: ${formatsList}`,
+          importance: 'medium'
+        })
+      }
     }
     
     if (numericColumns.length > 0) {
@@ -321,6 +441,7 @@ function App() {
         
         // Try to detect dates first
         const dateValues: Date[] = []
+        const detectedFormats: string[] = []
         let dateCount = 0
         
         values.forEach(val => {
@@ -328,11 +449,35 @@ function App() {
           if (parsedDate) {
             dateValues.push(parsedDate)
             dateCount++
+            
+            // Track format for reporting
+            if (typeof val === 'string') {
+              const valStr = val.trim()
+              if (/^\d{4}-\d{2}-\d{2}$/.test(valStr)) detectedFormats.push('YYYY-MM-DD')
+              else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(valStr)) detectedFormats.push('MM/DD/YYYY')
+              else if (/^\d{2}\.\d{2}\.\d{4}$/.test(valStr)) detectedFormats.push('DD.MM.YYYY')
+              else if (/^\d{4}\/\d{2}\/\d{2}$/.test(valStr)) detectedFormats.push('YYYY/MM/DD')
+              else if (/^\w+\s+\d{1,2},?\s+\d{4}$/i.test(valStr)) detectedFormats.push('Month DD, YYYY')
+              else detectedFormats.push('Other')
+            } else if (typeof val === 'number') {
+              detectedFormats.push('Excel Serial')
+            }
           }
         })
         
-        // Determine if this is a date column (at least 70% are valid dates)
-        const isDateColumn = values.length > 0 && (dateCount / values.length) >= 0.7
+        // Debug logging for date detection
+        if (dateCount > 0) {
+          console.log(`Date analysis for column "${header}":`, {
+            totalValues: values.length,
+            datesParsed: dateCount,
+            successRate: `${((dateCount / values.length) * 100).toFixed(1)}%`,
+            sampleValues: values.slice(0, 5),
+            detectedFormats: [...new Set(detectedFormats)]
+          })
+        }
+        
+        // Determine if this is a date column (at least 60% are valid dates)
+        const isDateColumn = values.length > 0 && (dateCount / values.length) >= 0.6
         
         if (isDateColumn) {
           // This is a date column
@@ -345,17 +490,30 @@ function App() {
             `${minDate.toLocaleDateString()} to ${maxDate.toLocaleDateString()}` : 
             'Invalid range'
           
+          // Create format summary
+          const formatCounts = detectedFormats.reduce((acc, format) => {
+            acc[format] = (acc[format] || 0) + 1
+            return acc
+          }, {} as Record<string, number>)
+          
+          const formatSummary = Object.entries(formatCounts)
+            .sort(([,a], [,b]) => b - a)
+            .map(([format, count]) => `${format} (${count})`)
+            .join(', ')
+          
           return {
             name: header,
             type: 'date' as const,
             values,
             dateValues,
+            detectedFormats,
             stats: {
               count: values.length,
               min: minDate,
               max: maxDate,
               dateRange,
-              frequency
+              frequency,
+              formatSummary
             }
           }
         }
@@ -400,7 +558,13 @@ function App() {
       // Generate insights
       const generatedInsights = analyzeData(columns)
       
-      console.log('Processed columns:', columns.map(col => ({ name: col.name, type: col.type, count: col.stats?.count })))
+      console.log('Processed columns:', columns.map(col => ({ 
+        name: col.name, 
+        type: col.type, 
+        count: col.stats?.count,
+        detectedFormats: col.type === 'date' ? col.detectedFormats : undefined,
+        formatSummary: col.type === 'date' ? col.stats?.formatSummary : undefined
+      })))
       console.log('Generated insights:', generatedInsights)
       
       // Update state
@@ -659,23 +823,26 @@ function App() {
                     <p className="text-muted-foreground mt-2">
                       Supports Excel (.xlsx, .xls) and CSV files
                     </p>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Date formats: YYYY-MM-DD, MM/DD/YYYY, DD.MM.YYYY, Month DD YYYY, Excel serial dates, and more
+                    </p>
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="text-center p-4">
                       <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
                       <h3 className="font-medium">1. Upload</h3>
-                      <p className="text-sm text-muted-foreground">Upload your Excel or CSV file</p>
+                      <p className="text-sm text-muted-foreground">Upload Excel or CSV with any date format</p>
                     </div>
                     <div className="text-center p-4">
                       <TrendingUp className="w-8 h-8 text-primary mx-auto mb-2" />
-                      <h3 className="font-medium">2. Analyze</h3>
-                      <p className="text-sm text-muted-foreground">Get automated insights and statistics</p>
+                      <h3 className="font-medium">2. Auto-Detect</h3>
+                      <p className="text-sm text-muted-foreground">Smart parsing of mixed date formats</p>
                     </div>
                     <div className="text-center p-4">
                       <Download className="w-8 h-8 text-primary mx-auto mb-2" />
-                      <h3 className="font-medium">3. Export</h3>
-                      <p className="text-sm text-muted-foreground">Download beautiful infographics</p>
+                      <h3 className="font-medium">3. Analyze</h3>
+                      <p className="text-sm text-muted-foreground">Get insights with time-series analysis</p>
                     </div>
                   </div>
                 </div>
@@ -781,6 +948,11 @@ function App() {
                         </CardTitle>
                         <CardDescription>
                           {dateCol.stats?.frequency} frequency • {dateCol.stats?.dateRange}
+                          {dateCol.stats?.formatSummary && (
+                            <div className="text-xs mt-1 text-muted-foreground">
+                              Formats: {dateCol.stats.formatSummary}
+                            </div>
+                          )}
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
@@ -951,6 +1123,17 @@ function App() {
                           <span className="text-muted-foreground">Span:</span>
                           <span className="font-medium">{column.stats.dateRange}</span>
                         </div>
+                        {column.stats.formatSummary && (
+                          <>
+                            <Separator />
+                            <div className="space-y-1">
+                              <span className="text-muted-foreground text-sm">Detected Formats:</span>
+                              <div className="text-xs text-muted-foreground break-words">
+                                {column.stats.formatSummary}
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                     {column.type === 'text' && (
