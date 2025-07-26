@@ -1,13 +1,15 @@
 import React, { useState, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
 import * as XLSX from 'xlsx'
-import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock } from '@phosphor-icons/react'
+import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie } from 'recharts'
 
@@ -27,6 +29,9 @@ interface DataColumn {
     frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'irregular'
     formatSummary?: string // Summary of detected date formats
   }
+  // Track which rows are included in analysis
+  selectedRows?: boolean[]
+  originalRowCount?: number
 }
 
 interface Insight {
@@ -51,6 +56,7 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStep, setProcessingStep] = useState('')
   const [fileName, setFileName] = useKV<string>('file-name', '')
+  const [showDataSelection, setShowDataSelection] = useState(false)
 
   // Enhanced helper function to detect and parse various date formats
   const parseDate = useCallback((value: any): Date | null => {
@@ -210,6 +216,61 @@ function App() {
     return 'irregular'
   }, [])
 
+  // Calculate statistics for selected data points only
+  const calculateStats = useCallback((column: DataColumn): DataColumn['stats'] => {
+    const selectedIndices = column.selectedRows
+      ?.map((selected, index) => selected ? index : -1)
+      .filter(index => index !== -1) || []
+    
+    if (selectedIndices.length === 0) {
+      return { count: 0 }
+    }
+
+    if (column.type === 'date' && column.dateValues) {
+      const selectedDates = selectedIndices
+        .map(index => column.dateValues![index])
+        .filter(date => date)
+      
+      if (selectedDates.length === 0) return { count: 0 }
+      
+      const sortedDates = [...selectedDates].sort((a, b) => a.getTime() - b.getTime())
+      const frequency = analyzeDateFrequency(selectedDates)
+      
+      const minDate = sortedDates[0]
+      const maxDate = sortedDates[sortedDates.length - 1]
+      const dateRange = minDate && maxDate ? 
+        `${minDate.toLocaleDateString()} to ${maxDate.toLocaleDateString()}` : 
+        'Invalid range'
+      
+      return {
+        count: selectedDates.length,
+        min: minDate,
+        max: maxDate,
+        dateRange,
+        frequency,
+        formatSummary: column.stats?.formatSummary // Keep original format summary
+      }
+    }
+
+    if (column.type === 'number') {
+      const selectedValues = selectedIndices
+        .map(index => Number(column.values[index]))
+        .filter(val => !isNaN(val) && isFinite(val))
+      
+      if (selectedValues.length === 0) return { count: 0 }
+      
+      return {
+        count: selectedValues.length,
+        min: Math.min(...selectedValues),
+        max: Math.max(...selectedValues),
+        avg: selectedValues.reduce((a, b) => a + b, 0) / selectedValues.length,
+        sum: selectedValues.reduce((a, b) => a + b, 0)
+      }
+    }
+
+    return { count: selectedIndices.length }
+  }, [analyzeDateFrequency])
+
   // Generate time-series insights
   const generateTimeSeriesInsights = useCallback((dateColumns: DataColumn[], numericColumns: DataColumn[]): Insight[] => {
     const insights: Insight[] = []
@@ -306,18 +367,42 @@ function App() {
   const analyzeData = useCallback((columns: DataColumn[]): Insight[] => {
     const newInsights: Insight[] = []
     
-    // Find different column types
-    const numericColumns = columns.filter(col => col.type === 'number' && col.stats)
-    const dateColumns = columns.filter(col => col.type === 'date')
-    const textColumns = columns.filter(col => col.type === 'text')
+    // Filter columns to only include those with selected data
+    const activeColumns = columns.filter(col => {
+      const selectedCount = col.selectedRows?.filter(Boolean).length || 0
+      return selectedCount > 0
+    })
     
-    // Always add a basic overview
-    const totalRows = columns[0]?.values.length || 0
+    if (activeColumns.length === 0) {
+      newInsights.push({
+        type: 'summary',
+        title: 'No Data Selected',
+        description: 'Please select data points to generate insights and statistics.',
+        importance: 'high'
+      })
+      return newInsights
+    }
+    
+    // Find different column types among active columns
+    const numericColumns = activeColumns.filter(col => col.type === 'number' && col.stats)
+    const dateColumns = activeColumns.filter(col => col.type === 'date')
+    const textColumns = activeColumns.filter(col => col.type === 'text')
+    
+    // Calculate total selected rows
+    const totalSelectedRows = Math.max(...activeColumns.map(col => 
+      col.selectedRows?.filter(Boolean).length || 0
+    ))
+    
+    // Add selection overview insight
+    const totalOriginalRows = activeColumns[0]?.originalRowCount || 0
+    const selectionPercentage = totalOriginalRows > 0 ? 
+      Math.round((totalSelectedRows / totalOriginalRows) * 100) : 0
+    
     newInsights.push({
       type: 'summary',
-      title: 'Dataset Overview',
-      description: `Analyzed ${totalRows} rows across ${columns.length} columns: ${numericColumns.length} numeric, ${dateColumns.length} date, ${textColumns.length} text`,
-      value: `${totalRows} records`,
+      title: 'Data Selection Overview',
+      description: `Analyzing ${totalSelectedRows} selected rows (${selectionPercentage}% of original data) across ${activeColumns.length} columns: ${numericColumns.length} numeric, ${dateColumns.length} date, ${textColumns.length} text`,
+      value: `${totalSelectedRows}/${totalOriginalRows} records`,
       importance: 'high'
     })
     
@@ -326,7 +411,7 @@ function App() {
       const timeSeriesInsights = generateTimeSeriesInsights(dateColumns, numericColumns)
       newInsights.push(...timeSeriesInsights)
       
-      // Add date format detection summary
+      // Add date format detection summary for selected data
       const allFormats = dateColumns
         .flatMap(col => col.detectedFormats || [])
         .reduce((acc, format) => {
@@ -340,72 +425,57 @@ function App() {
       if (formatsList && uniqueFormats.length > 1) {
         newInsights.push({
           type: 'summary',
-          title: 'Mixed Date Format Detection',
-          description: `Successfully detected and unified ${uniqueFormats.length} different date formats: ${formatsList}. All dates normalized for consistent analysis.`,
+          title: 'Selected Data Date Formats',
+          description: `Selected data contains ${uniqueFormats.length} different date formats: ${formatsList}. All dates normalized for consistent analysis.`,
           value: `${uniqueFormats.length} formats`,
-          importance: 'high'
-        })
-      } else if (formatsList) {
-        newInsights.push({
-          type: 'summary',
-          title: 'Date Format Detection',
-          description: `Consistent date format detected: ${formatsList}`,
           importance: 'medium'
         })
       }
     }
     
     if (numericColumns.length > 0) {
-      // Find highest value column
+      // Find highest value column among selected data
       const maxColumn = numericColumns.reduce((max, col) => 
         (col.stats!.max as number || 0) > (max.stats!.max as number || 0) ? col : max
       )
       
       newInsights.push({
         type: 'trend',
-        title: 'Highest Values',
-        description: `${maxColumn.name} shows the highest peak value in your dataset`,
+        title: 'Highest Selected Values',
+        description: `${maxColumn.name} shows the highest peak value in your selected dataset`,
         value: (maxColumn.stats!.max as number)?.toLocaleString(),
         importance: 'high'
       })
 
-      // Find average insights
+      // Find average insights for selected data
       numericColumns.forEach(col => {
         if (col.stats!.avg && col.stats!.avg > 0) {
           newInsights.push({
             type: 'summary',
-            title: `${col.name} Average`,
-            description: `The average ${col.name.toLowerCase()} across all records`,
+            title: `${col.name} Average (Selected)`,
+            description: `The average ${col.name.toLowerCase()} across selected records`,
             value: col.stats!.avg.toLocaleString(undefined, { maximumFractionDigits: 2 }),
             importance: 'medium'
           })
         }
       })
 
-      // Distribution insight
+      // Distribution insight for selected data
       if (numericColumns.length >= 2) {
         newInsights.push({
           type: 'correlation',
-          title: 'Data Distribution',
-          description: `Your data spans multiple metrics, enabling comprehensive analysis across ${numericColumns.length} dimensions`,
+          title: 'Selected Data Distribution',
+          description: `Your selected data spans multiple metrics, enabling comprehensive analysis across ${numericColumns.length} dimensions`,
           importance: 'medium'
         })
       }
     } else if (textColumns.length > 0) {
-      // Add insights for text-based data
+      // Add insights for selected text-based data
       newInsights.push({
         type: 'summary',
-        title: 'Text Data Detected',
-        description: `Your dataset contains ${textColumns.length} text columns. Consider formatting numeric data as numbers for statistical analysis.`,
+        title: 'Selected Text Data',
+        description: `Your selected dataset contains ${textColumns.length} text columns. Consider formatting numeric data as numbers for statistical analysis.`,
         importance: 'medium'
-      })
-      
-      // Show column types
-      newInsights.push({
-        type: 'summary',
-        title: 'Column Types',
-        description: `Columns detected: ${columns.map(col => `${col.name} (${col.type})`).join(', ')}`,
-        importance: 'low'
       })
     }
 
@@ -514,7 +584,9 @@ function App() {
               dateRange,
               frequency,
               formatSummary
-            }
+            },
+            selectedRows: new Array(values.length).fill(true), // Initially select all rows
+            originalRowCount: values.length
           }
         }
         
@@ -549,7 +621,9 @@ function App() {
           name: header,
           type,
           values,
-          stats
+          stats,
+          selectedRows: new Array(values.length).fill(true), // Initially select all rows
+          originalRowCount: values.length
         }
       })
 
@@ -605,24 +679,127 @@ function App() {
     }
   }, [processExcelFile])
 
+  // Update data selection and recalculate insights
+  const updateDataSelection = useCallback((updatedColumns: DataColumn[]) => {
+    // Recalculate stats for all columns based on selected rows
+    const columnsWithUpdatedStats = updatedColumns.map(col => ({
+      ...col,
+      stats: calculateStats(col)
+    }))
+    
+    // Regenerate insights based on selected data
+    const newInsights = analyzeData(columnsWithUpdatedStats)
+    
+    setUploadedData(columnsWithUpdatedStats)
+    setInsights(newInsights)
+    
+    const selectedCount = columnsWithUpdatedStats[0]?.selectedRows?.filter(Boolean).length || 0
+    const totalCount = columnsWithUpdatedStats[0]?.originalRowCount || 0
+    
+    toast.success(`Analysis updated with ${selectedCount}/${totalCount} selected data points`)
+  }, [calculateStats, analyzeData, setUploadedData, setInsights])
+
+  // Toggle row selection for a specific column
+  const toggleRowSelection = useCallback((columnIndex: number, rowIndex: number) => {
+    const updatedData = [...uploadedData]
+    if (updatedData[columnIndex].selectedRows) {
+      updatedData[columnIndex].selectedRows![rowIndex] = !updatedData[columnIndex].selectedRows![rowIndex]
+      updateDataSelection(updatedData)
+    }
+  }, [uploadedData, updateDataSelection])
+
+  // Toggle all rows for a column
+  const toggleAllRows = useCallback((columnIndex: number, selectAll: boolean) => {
+    const updatedData = [...uploadedData]
+    updatedData[columnIndex].selectedRows = new Array(updatedData[columnIndex].values.length).fill(selectAll)
+    updateDataSelection(updatedData)
+  }, [uploadedData, updateDataSelection])
+
+  // Smart selection presets
+  const applySmartSelection = useCallback((type: 'recent' | 'outliers' | 'complete') => {
+    const updatedData = [...uploadedData]
+    
+    updatedData.forEach((column, colIndex) => {
+      if (type === 'recent' && column.type === 'date' && column.dateValues) {
+        // Select most recent 50% of data
+        const sortedIndices = column.dateValues
+          .map((date, index) => ({ date, index }))
+          .sort((a, b) => b.date.getTime() - a.date.getTime())
+          .slice(0, Math.ceil(column.dateValues.length * 0.5))
+          .map(item => item.index)
+        
+        column.selectedRows = new Array(column.values.length).fill(false)
+        sortedIndices.forEach(index => {
+          column.selectedRows![index] = true
+        })
+      } else if (type === 'outliers' && column.type === 'number' && column.stats) {
+        // Select values outside 1.5 * IQR (interquartile range)
+        const numericValues = column.values
+          .map((val, index) => ({ value: Number(val), index }))
+          .filter(item => !isNaN(item.value))
+          .sort((a, b) => a.value - b.value)
+        
+        const q1Index = Math.floor(numericValues.length * 0.25)
+        const q3Index = Math.floor(numericValues.length * 0.75)
+        const q1 = numericValues[q1Index]?.value || 0
+        const q3 = numericValues[q3Index]?.value || 0
+        const iqr = q3 - q1
+        const lowerBound = q1 - 1.5 * iqr
+        const upperBound = q3 + 1.5 * iqr
+        
+        column.selectedRows = new Array(column.values.length).fill(false)
+        numericValues.forEach(({ value, index }) => {
+          if (value < lowerBound || value > upperBound) {
+            column.selectedRows![index] = true
+          }
+        })
+      } else if (type === 'complete') {
+        // Select only rows with complete data (no null/empty values)
+        column.selectedRows = column.values.map(val => 
+          val !== null && val !== undefined && val !== ''
+        )
+      }
+    })
+    
+    updateDataSelection(updatedData)
+    
+    const selectionType = type === 'recent' ? 'recent data' : 
+                         type === 'outliers' ? 'outlier values' : 'complete records'
+    toast.success(`Applied ${selectionType} selection`)
+  }, [uploadedData, updateDataSelection])
+
   const generateChart = (column: DataColumn, chartType: 'bar' | 'pie' | 'line' = 'bar') => {
+    // Filter data based on selected rows
+    const selectedIndices = column.selectedRows
+      ?.map((selected, index) => selected ? index : -1)
+      .filter(index => index !== -1) || []
+    
+    if (selectedIndices.length === 0) {
+      return (
+        <div className="h-48 flex items-center justify-center text-muted-foreground">
+          No data points selected for visualization
+        </div>
+      )
+    }
+
     if (column.type === 'date') {
-      // Create time series chart for date columns
+      // Create time series chart for selected date columns
       if (!column.dateValues) return null
       
-      const timeSeriesData = column.dateValues
-        .map((date, index) => ({
-          date: date.toLocaleDateString(),
+      const selectedTimeSeriesData = selectedIndices
+        .map(index => ({
+          date: column.dateValues![index]?.toLocaleDateString() || '',
           value: 1,
-          originalDate: date
+          originalDate: column.dateValues![index]
         }))
+        .filter(item => item.originalDate)
         .sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime())
       
       // Group by time period if too many points
-      let groupedData = timeSeriesData
-      if (timeSeriesData.length > 20) {
+      let groupedData = selectedTimeSeriesData
+      if (selectedTimeSeriesData.length > 20) {
         const groups = new Map<string, number>()
-        timeSeriesData.forEach(item => {
+        selectedTimeSeriesData.forEach(item => {
           const key = item.originalDate.toISOString().substring(0, 7) // Group by month
           groups.set(key, (groups.get(key) || 0) + 1)
         })
@@ -648,10 +825,10 @@ function App() {
     
     if (column.type !== 'number') return null
 
-    // Prepare data for charts
-    const chartData = column.values.map((value, index) => ({
-      name: `Item ${index + 1}`,
-      value: Number(value)
+    // Prepare data for charts using selected indices
+    const chartData = selectedIndices.map((index, chartIndex) => ({
+      name: `Item ${chartIndex + 1}`,
+      value: Number(column.values[index])
     })).slice(0, 10) // Limit to first 10 items for readability
 
     if (chartType === 'bar') {
@@ -682,16 +859,29 @@ function App() {
     return null
   }
   
-  // Generate time series chart combining date and numeric columns
+  // Generate time series chart combining date and numeric columns with selected data
   const generateTimeSeriesChart = (dateColumn: DataColumn, numericColumn: DataColumn) => {
     if (!dateColumn.dateValues || dateColumn.values.length !== numericColumn.values.length) {
       return null
     }
     
+    // Get indices of rows selected in both columns
+    const selectedIndices = dateColumn.selectedRows
+      ?.map((selected, index) => (selected && numericColumn.selectedRows?.[index]) ? index : -1)
+      .filter(index => index !== -1) || []
+    
+    if (selectedIndices.length === 0) {
+      return (
+        <div className="h-60 flex items-center justify-center text-muted-foreground">
+          No overlapping selected data points for time series visualization
+        </div>
+      )
+    }
+    
     const timeSeriesData: TimeSeriesData[] = []
-    for (let i = 0; i < dateColumn.dateValues.length; i++) {
-      const date = dateColumn.dateValues[i]
-      const value = Number(numericColumn.values[i])
+    selectedIndices.forEach(index => {
+      const date = dateColumn.dateValues![index]
+      const value = Number(numericColumn.values[index])
       if (date && !isNaN(value)) {
         timeSeriesData.push({
           date: date.toLocaleDateString(),
@@ -699,7 +889,7 @@ function App() {
           originalDate: date
         })
       }
-    }
+    })
     
     // Sort by date
     timeSeriesData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime())
@@ -874,10 +1064,14 @@ function App() {
         </div>
 
         <Tabs defaultValue="insights" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="insights" className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
               Insights
+            </TabsTrigger>
+            <TabsTrigger value="selection" className="flex items-center gap-2">
+              <Funnel className="w-4 h-4" />
+              Data Selection
             </TabsTrigger>
             <TabsTrigger value="timeseries" className="flex items-center gap-2">
               <Clock className="w-4 h-4" />
@@ -913,6 +1107,149 @@ function App() {
                   </CardContent>
                 </Card>
               ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="selection" className="space-y-6">
+            <div className="flex flex-col gap-6">
+              {/* Smart Selection Presets */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Funnel className="w-5 h-5" />
+                    Smart Selection Presets
+                  </CardTitle>
+                  <CardDescription>
+                    Apply intelligent filters to focus your analysis on specific data patterns
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => applySmartSelection('recent')}
+                      className="flex items-center gap-2"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      Recent Data (50%)
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => applySmartSelection('outliers')}
+                      className="flex items-center gap-2"
+                    >
+                      <TrendingUp className="w-4 h-4" />
+                      Outlier Values
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => applySmartSelection('complete')}
+                      className="flex items-center gap-2"
+                    >
+                      <Check className="w-4 h-4" />
+                      Complete Records
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Column Selection Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {uploadedData.map((column, columnIndex) => {
+                  const selectedCount = column.selectedRows?.filter(Boolean).length || 0
+                  const totalCount = column.values.length
+                  const selectionPercentage = Math.round((selectedCount / totalCount) * 100)
+                  
+                  return (
+                    <Card key={columnIndex}>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg">{column.name}</CardTitle>
+                          <Badge variant={column.type === 'number' ? 'default' : column.type === 'date' ? 'secondary' : 'outline'}>
+                            {column.type}
+                          </Badge>
+                        </div>
+                        <CardDescription>
+                          {selectedCount}/{totalCount} selected ({selectionPercentage}%)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Column-level controls */}
+                        <div className="flex gap-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => toggleAllRows(columnIndex, true)}
+                            className="flex-1"
+                          >
+                            <Check className="w-3 h-3 mr-1" />
+                            All
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => toggleAllRows(columnIndex, false)}
+                            className="flex-1"
+                          >
+                            <X className="w-3 h-3 mr-1" />
+                            None
+                          </Button>
+                        </div>
+                        
+                        <Progress value={selectionPercentage} className="w-full" />
+                        
+                        {/* Sample data preview with checkboxes */}
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Sample Data (First 5 rows):</Label>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {column.values.slice(0, 5).map((value, rowIndex) => (
+                              <div key={rowIndex} className="flex items-center space-x-2">
+                                <Checkbox
+                                  id={`${columnIndex}-${rowIndex}`}
+                                  checked={column.selectedRows?.[rowIndex] || false}
+                                  onCheckedChange={() => toggleRowSelection(columnIndex, rowIndex)}
+                                />
+                                <Label 
+                                  htmlFor={`${columnIndex}-${rowIndex}`}
+                                  className="text-xs flex-1 cursor-pointer truncate"
+                                >
+                                  {column.type === 'date' && column.dateValues?.[rowIndex] 
+                                    ? column.dateValues[rowIndex].toLocaleDateString()
+                                    : String(value)
+                                  }
+                                </Label>
+                              </div>
+                            ))}
+                            {column.values.length > 5 && (
+                              <div className="text-xs text-muted-foreground">
+                                ...and {column.values.length - 5} more rows
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Quick stats for selected data */}
+                        {column.stats && selectedCount > 0 && (
+                          <div className="text-xs text-muted-foreground space-y-1">
+                            {column.type === 'number' && (
+                              <>
+                                <div>Selected Avg: {column.stats.avg?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                                <div>Selected Range: {(column.stats.min as number)?.toLocaleString()} - {(column.stats.max as number)?.toLocaleString()}</div>
+                              </>
+                            )}
+                            {column.type === 'date' && (
+                              <>
+                                <div>Selected Range: {column.stats.dateRange}</div>
+                                <div>Pattern: {column.stats.frequency}</div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
             </div>
           </TabsContent>
 
