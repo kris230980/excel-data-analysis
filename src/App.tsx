@@ -9,7 +9,7 @@ import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie } from 'recharts'
 
 interface DataColumn {
   name: string
@@ -218,11 +218,11 @@ function App() {
       return (
         <ResponsiveContainer width="100%" height={200}>
           <RechartsPieChart>
-            <RechartsPieChart data={chartData}>
+            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}>
               {chartData.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
               ))}
-            </RechartsPieChart>
+            </Pie>
           </RechartsPieChart>
         </ResponsiveContainer>
       )
