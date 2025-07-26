@@ -532,30 +532,6 @@ function App() {
     }
   }, [safeFilterConfig, safeUploadedData, applyAdvancedFilters, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
 
-  // Clear all filters
-  const clearAllFilters = useCallback(() => {
-    setFilterConfig({})
-    
-    if (safeUploadedData.length > 0) {
-      // Reset all rows to selected
-      const resetData = safeUploadedData.map(col => ({
-        ...col,
-        selectedRows: new Array(col.values.length).fill(true)
-      }))
-      
-      const columnsWithUpdatedStats = resetData.map(col => ({
-        ...col,
-        stats: calculateStats(col)
-      }))
-      
-      const newInsights = analyzeData(columnsWithUpdatedStats)
-      setUploadedData(columnsWithUpdatedStats)
-      setInsights(newInsights)
-      
-      toast.success('All filters cleared')
-    }
-  }, [safeUploadedData, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
-
   const analyzeData = useCallback((columns: DataColumn[]): Insight[] => {
     const newInsights: Insight[] = []
     
@@ -777,6 +753,30 @@ function App() {
     
     return insights
   }, [])
+
+  // Clear all filters
+  const clearAllFilters = useCallback(() => {
+    setFilterConfig({})
+    
+    if (safeUploadedData.length > 0) {
+      // Reset all rows to selected
+      const resetData = safeUploadedData.map(col => ({
+        ...col,
+        selectedRows: new Array(col.values.length).fill(true)
+      }))
+      
+      const columnsWithUpdatedStats = resetData.map(col => ({
+        ...col,
+        stats: calculateStats(col)
+      }))
+      
+      const newInsights = analyzeData(columnsWithUpdatedStats)
+      setUploadedData(columnsWithUpdatedStats)
+      setInsights(newInsights)
+      
+      toast.success('All filters cleared')
+    }
+  }, [safeUploadedData, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
 
 
   const processExcelFile = useCallback(async (file: File) => {
