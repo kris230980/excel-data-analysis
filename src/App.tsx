@@ -556,101 +556,6 @@ function App() {
     }
   }, [safeUploadedData, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
 
-  // Generate time-series insights
-  const generateTimeSeriesInsights = useCallback((dateColumns: DataColumn[], numericColumns: DataColumn[]): Insight[] => {
-    const insights: Insight[] = []
-    
-    // Find time series pairs (date + numeric columns)
-    dateColumns.forEach(dateCol => {
-      if (!dateCol.dateValues || dateCol.dateValues.length === 0) return
-      
-      const dateRange = dateCol.stats?.dateRange
-      const frequency = dateCol.stats?.frequency
-      
-      // Date range insight with format information
-      insights.push({
-        type: 'temporal',
-        title: `${dateCol.name} Date Analysis`,
-        description: `Data spans ${dateRange} with ${frequency} frequency. Detected formats: ${dateCol.stats?.formatSummary || 'Various'}`,
-        value: dateRange,
-        importance: 'high'
-      })
-      
-      // Frequency pattern insight
-      if (frequency !== 'irregular') {
-        insights.push({
-          type: 'temporal',
-          title: 'Data Collection Pattern',
-          description: `Regular ${frequency} data collection detected, ideal for trend analysis and forecasting`,
-          importance: 'medium'
-        })
-      }
-      
-      // Seasonal analysis for monthly/yearly data
-      if (dateCol.dateValues && dateCol.dateValues.filter(d => d !== null).length >= 12 && (frequency === 'monthly' || frequency === 'yearly')) {
-        const monthCounts = new Array(12).fill(0)
-        dateCol.dateValues.forEach(date => {
-          if (date) {
-            monthCounts[date.getMonth()]++
-          }
-        })
-        
-        const maxMonth = monthCounts.indexOf(Math.max(...monthCounts))
-        const minMonth = monthCounts.indexOf(Math.min(...monthCounts))
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-        
-        insights.push({
-          type: 'seasonal',
-          title: 'Seasonal Patterns',
-          description: `Peak activity in ${monthNames[maxMonth]}, lowest in ${monthNames[minMonth]}`,
-          importance: 'medium'
-        })
-      }
-      
-      // Combine with numeric data for trend analysis
-      numericColumns.forEach(numCol => {
-        if (dateCol.values.length === numCol.values.length) {
-          // Create time series pairs
-          const pairs: Array<{date: Date, value: number}> = []
-          for (let i = 0; i < dateCol.dateValues!.length; i++) {
-            const date = dateCol.dateValues![i]
-            const value = Number(numCol.values[i])
-            if (date && !isNaN(value)) {
-              pairs.push({ date, value })
-            }
-          }
-          
-          if (pairs.length >= 3) {
-            // Sort by date
-            pairs.sort((a, b) => a.date.getTime() - b.date.getTime())
-            
-            // Calculate trend
-            const firstHalf = pairs.slice(0, Math.floor(pairs.length / 2))
-            const secondHalf = pairs.slice(Math.floor(pairs.length / 2))
-            
-            const firstAvg = firstHalf.reduce((sum, p) => sum + p.value, 0) / firstHalf.length
-            const secondAvg = secondHalf.reduce((sum, p) => sum + p.value, 0) / secondHalf.length
-            
-            const trendDirection = secondAvg > firstAvg ? 'increasing' : 'decreasing'
-            const trendMagnitude = Math.abs((secondAvg - firstAvg) / firstAvg * 100)
-            
-            if (trendMagnitude > 5) {
-              insights.push({
-                type: 'trend',
-                title: `${numCol.name} Time Trend`,
-                description: `${numCol.name} shows ${trendDirection} trend over time with ${trendMagnitude.toFixed(1)}% change`,
-                value: `${trendDirection === 'increasing' ? '+' : '-'}${trendMagnitude.toFixed(1)}%`,
-                importance: trendMagnitude > 20 ? 'high' : 'medium'
-              })
-            }
-          }
-        }
-      })
-    })
-    
-    return insights
-  }, [])
-
   const analyzeData = useCallback((columns: DataColumn[]): Insight[] => {
     const newInsights: Insight[] = []
     
@@ -776,7 +681,103 @@ function App() {
     }
 
     return newInsights.slice(0, 8) // Limit to 8 insights
-  }, [generateTimeSeriesInsights])
+  }, [])
+
+  // Generate time-series insights
+  const generateTimeSeriesInsights = useCallback((dateColumns: DataColumn[], numericColumns: DataColumn[]): Insight[] => {
+    const insights: Insight[] = []
+    
+    // Find time series pairs (date + numeric columns)
+    dateColumns.forEach(dateCol => {
+      if (!dateCol.dateValues || dateCol.dateValues.length === 0) return
+      
+      const dateRange = dateCol.stats?.dateRange
+      const frequency = dateCol.stats?.frequency
+      
+      // Date range insight with format information
+      insights.push({
+        type: 'temporal',
+        title: `${dateCol.name} Date Analysis`,
+        description: `Data spans ${dateRange} with ${frequency} frequency. Detected formats: ${dateCol.stats?.formatSummary || 'Various'}`,
+        value: dateRange,
+        importance: 'high'
+      })
+      
+      // Frequency pattern insight
+      if (frequency !== 'irregular') {
+        insights.push({
+          type: 'temporal',
+          title: 'Data Collection Pattern',
+          description: `Regular ${frequency} data collection detected, ideal for trend analysis and forecasting`,
+          importance: 'medium'
+        })
+      }
+      
+      // Seasonal analysis for monthly/yearly data
+      if (dateCol.dateValues && dateCol.dateValues.filter(d => d !== null).length >= 12 && (frequency === 'monthly' || frequency === 'yearly')) {
+        const monthCounts = new Array(12).fill(0)
+        dateCol.dateValues.forEach(date => {
+          if (date) {
+            monthCounts[date.getMonth()]++
+          }
+        })
+        
+        const maxMonth = monthCounts.indexOf(Math.max(...monthCounts))
+        const minMonth = monthCounts.indexOf(Math.min(...monthCounts))
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        
+        insights.push({
+          type: 'seasonal',
+          title: 'Seasonal Patterns',
+          description: `Peak activity in ${monthNames[maxMonth]}, lowest in ${monthNames[minMonth]}`,
+          importance: 'medium'
+        })
+      }
+      
+      // Combine with numeric data for trend analysis
+      numericColumns.forEach(numCol => {
+        if (dateCol.values.length === numCol.values.length) {
+          // Create time series pairs
+          const pairs: Array<{date: Date, value: number}> = []
+          for (let i = 0; i < dateCol.dateValues!.length; i++) {
+            const date = dateCol.dateValues![i]
+            const value = Number(numCol.values[i])
+            if (date && !isNaN(value)) {
+              pairs.push({ date, value })
+            }
+          }
+          
+          if (pairs.length >= 3) {
+            // Sort by date
+            pairs.sort((a, b) => a.date.getTime() - b.date.getTime())
+            
+            // Calculate trend
+            const firstHalf = pairs.slice(0, Math.floor(pairs.length / 2))
+            const secondHalf = pairs.slice(Math.floor(pairs.length / 2))
+            
+            const firstAvg = firstHalf.reduce((sum, p) => sum + p.value, 0) / firstHalf.length
+            const secondAvg = secondHalf.reduce((sum, p) => sum + p.value, 0) / secondHalf.length
+            
+            const trendDirection = secondAvg > firstAvg ? 'increasing' : 'decreasing'
+            const trendMagnitude = Math.abs((secondAvg - firstAvg) / firstAvg * 100)
+            
+            if (trendMagnitude > 5) {
+              insights.push({
+                type: 'trend',
+                title: `${numCol.name} Time Trend`,
+                description: `${numCol.name} shows ${trendDirection} trend over time with ${trendMagnitude.toFixed(1)}% change`,
+                value: `${trendDirection === 'increasing' ? '+' : '-'}${trendMagnitude.toFixed(1)}%`,
+                importance: trendMagnitude > 20 ? 'high' : 'medium'
+              })
+            }
+          }
+        }
+      })
+    })
+    
+    return insights
+  }, [])
+
 
   const processExcelFile = useCallback(async (file: File) => {
     setIsProcessing(true)
