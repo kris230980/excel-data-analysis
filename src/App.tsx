@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
 import * as XLSX from 'xlsx'
-import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X } from '@phosphor-icons/react'
+import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X, Filter, CalendarBlank, TrendDown, TrendUp } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -10,6 +10,10 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie } from 'recharts'
 
@@ -48,6 +52,29 @@ interface TimeSeriesData {
   originalDate: Date
 }
 
+interface FilterConfig {
+  dateRange?: {
+    start: string
+    end: string
+    columnIndex: number
+  }
+  outlierDetection?: {
+    columnIndex: number
+    sensitivity: number // 1-3 (1=conservative, 3=aggressive)
+    method: 'iqr' | 'zscore' | 'modified_zscore'
+  }
+  valueRange?: {
+    columnIndex: number
+    min: number
+    max: number
+  }
+  textFilter?: {
+    columnIndex: number
+    pattern: string
+    caseSensitive: boolean
+  }
+}
+
 const CHART_COLORS = ['#1e40af', '#f97316', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4']
 
 function App() {
@@ -58,10 +85,13 @@ function App() {
   const [fileName, setFileName] = useKV<string>('file-name', '')
   const [showDataSelection, setShowDataSelection] = useState(false)
   const [hasError, setHasError] = useState(false)
+  const [filterConfig, setFilterConfig] = useKV<FilterConfig>('filter-config', {})
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   // Safe data access with fallbacks
   const safeUploadedData = Array.isArray(uploadedData) ? uploadedData : []
   const safeInsights = Array.isArray(insights) ? insights : []
+  const safeFilterConfig = filterConfig || {}
 
   // Error boundary for component
   if (hasError) {
@@ -80,6 +110,7 @@ function App() {
               setUploadedData([])
               setInsights([])
               setFileName('')
+              setFilterConfig({})
             }}>
               Reset Application
             </Button>
@@ -307,6 +338,223 @@ function App() {
 
     return { count: selectedIndices.length }
   }, [analyzeDateFrequency])
+
+  // Advanced outlier detection methods
+  const detectOutliers = useCallback((values: number[], method: 'iqr' | 'zscore' | 'modified_zscore', sensitivity: number): boolean[] => {
+    if (values.length < 4) return new Array(values.length).fill(false)
+    
+    const sortedValues = [...values].sort((a, b) => a - b)
+    const outliers = new Array(values.length).fill(false)
+    
+    if (method === 'iqr') {
+      const q1Index = Math.floor(sortedValues.length * 0.25)
+      const q3Index = Math.floor(sortedValues.length * 0.75)
+      const q1 = sortedValues[q1Index]
+      const q3 = sortedValues[q3Index]
+      const iqr = q3 - q1
+      
+      // Sensitivity: 1=1.5*IQR, 2=1.25*IQR, 3=1.0*IQR
+      const multiplier = 2 - (sensitivity - 1) * 0.25
+      const lowerBound = q1 - multiplier * iqr
+      const upperBound = q3 + multiplier * iqr
+      
+      values.forEach((value, index) => {
+        outliers[index] = value < lowerBound || value > upperBound
+      })
+    } else if (method === 'zscore') {
+      const mean = values.reduce((sum, val) => sum + val, 0) / values.length
+      const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length
+      const stdDev = Math.sqrt(variance)
+      
+      // Sensitivity: 1=3σ, 2=2.5σ, 3=2σ
+      const threshold = 4 - sensitivity
+      
+      values.forEach((value, index) => {
+        const zScore = Math.abs((value - mean) / stdDev)
+        outliers[index] = zScore > threshold
+      })
+    } else if (method === 'modified_zscore') {
+      const median = sortedValues[Math.floor(sortedValues.length / 2)]
+      const medianAbsoluteDeviations = values.map(val => Math.abs(val - median))
+      const mad = medianAbsoluteDeviations.sort((a, b) => a - b)[Math.floor(medianAbsoluteDeviations.length / 2)]
+      
+      // Sensitivity: 1=3.5, 2=3.0, 3=2.5
+      const threshold = 4 - (sensitivity - 1) * 0.5
+      
+      values.forEach((value, index) => {
+        const modifiedZScore = 0.6745 * (value - median) / mad
+        outliers[index] = Math.abs(modifiedZScore) > threshold
+      })
+    }
+    
+    return outliers
+  }, [])
+
+  // Apply date range filter
+  const applyDateRangeFilter = useCallback((data: DataColumn[], config: FilterConfig['dateRange']): DataColumn[] => {
+    if (!config || !data[config.columnIndex] || data[config.columnIndex].type !== 'date') {
+      return data
+    }
+    
+    const startDate = new Date(config.start)
+    const endDate = new Date(config.end)
+    const column = data[config.columnIndex]
+    
+    if (!column.dateValues || isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+      return data
+    }
+    
+    const updatedData = [...data]
+    const updatedColumn = { ...column }
+    
+    updatedColumn.selectedRows = column.dateValues.map((date, index) => {
+      if (!date || !(date instanceof Date) || isNaN(date.getTime())) return false
+      return date >= startDate && date <= endDate && (column.selectedRows?.[index] ?? true)
+    })
+    
+    updatedData[config.columnIndex] = updatedColumn
+    return updatedData
+  }, [])
+
+  // Apply outlier detection filter
+  const applyOutlierFilter = useCallback((data: DataColumn[], config: FilterConfig['outlierDetection']): DataColumn[] => {
+    if (!config || !data[config.columnIndex] || data[config.columnIndex].type !== 'number') {
+      return data
+    }
+    
+    const column = data[config.columnIndex]
+    const numericValues = column.values
+      .map(val => Number(val))
+      .filter(val => !isNaN(val) && isFinite(val))
+    
+    if (numericValues.length < 4) return data
+    
+    const outlierFlags = detectOutliers(numericValues, config.method, config.sensitivity)
+    
+    const updatedData = [...data]
+    const updatedColumn = { ...column }
+    
+    let outlierIndex = 0
+    updatedColumn.selectedRows = column.values.map((val, index) => {
+      const numVal = Number(val)
+      if (isNaN(numVal) || !isFinite(numVal)) return column.selectedRows?.[index] ?? true
+      
+      const isOutlier = outlierFlags[outlierIndex++]
+      return isOutlier && (column.selectedRows?.[index] ?? true)
+    })
+    
+    updatedData[config.columnIndex] = updatedColumn
+    return updatedData
+  }, [detectOutliers])
+
+  // Apply value range filter
+  const applyValueRangeFilter = useCallback((data: DataColumn[], config: FilterConfig['valueRange']): DataColumn[] => {
+    if (!config || !data[config.columnIndex] || data[config.columnIndex].type !== 'number') {
+      return data
+    }
+    
+    const column = data[config.columnIndex]
+    const updatedData = [...data]
+    const updatedColumn = { ...column }
+    
+    updatedColumn.selectedRows = column.values.map((val, index) => {
+      const numVal = Number(val)
+      if (isNaN(numVal) || !isFinite(numVal)) return false
+      return numVal >= config.min && numVal <= config.max && (column.selectedRows?.[index] ?? true)
+    })
+    
+    updatedData[config.columnIndex] = updatedColumn
+    return updatedData
+  }, [])
+
+  // Apply text pattern filter
+  const applyTextFilter = useCallback((data: DataColumn[], config: FilterConfig['textFilter']): DataColumn[] => {
+    if (!config || !data[config.columnIndex] || !config.pattern) {
+      return data
+    }
+    
+    const column = data[config.columnIndex]
+    const updatedData = [...data]
+    const updatedColumn = { ...column }
+    
+    const pattern = config.caseSensitive ? config.pattern : config.pattern.toLowerCase()
+    
+    updatedColumn.selectedRows = column.values.map((val, index) => {
+      if (val === null || val === undefined) return false
+      const strVal = config.caseSensitive ? String(val) : String(val).toLowerCase()
+      return strVal.includes(pattern) && (column.selectedRows?.[index] ?? true)
+    })
+    
+    updatedData[config.columnIndex] = updatedColumn
+    return updatedData
+  }, [])
+
+  // Apply all active filters
+  const applyAdvancedFilters = useCallback((baseData: DataColumn[]): DataColumn[] => {
+    let filteredData = [...baseData]
+    
+    if (safeFilterConfig.dateRange) {
+      filteredData = applyDateRangeFilter(filteredData, safeFilterConfig.dateRange)
+    }
+    
+    if (safeFilterConfig.outlierDetection) {
+      filteredData = applyOutlierFilter(filteredData, safeFilterConfig.outlierDetection)
+    }
+    
+    if (safeFilterConfig.valueRange) {
+      filteredData = applyValueRangeFilter(filteredData, safeFilterConfig.valueRange)
+    }
+    
+    if (safeFilterConfig.textFilter) {
+      filteredData = applyTextFilter(filteredData, safeFilterConfig.textFilter)
+    }
+    
+    return filteredData
+  }, [safeFilterConfig, applyDateRangeFilter, applyOutlierFilter, applyValueRangeFilter, applyTextFilter])
+
+  // Update filter configuration
+  const updateFilterConfig = useCallback((newConfig: Partial<FilterConfig>) => {
+    const updatedConfig = { ...safeFilterConfig, ...newConfig }
+    setFilterConfig(updatedConfig)
+    
+    if (safeUploadedData.length > 0) {
+      const filteredData = applyAdvancedFilters(safeUploadedData)
+      const columnsWithUpdatedStats = filteredData.map(col => ({
+        ...col,
+        stats: calculateStats(col)
+      }))
+      
+      const newInsights = analyzeData(columnsWithUpdatedStats)
+      setUploadedData(columnsWithUpdatedStats)
+      setInsights(newInsights)
+      
+      toast.success('Filters applied successfully')
+    }
+  }, [safeFilterConfig, safeUploadedData, applyAdvancedFilters, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
+
+  // Clear all filters
+  const clearAllFilters = useCallback(() => {
+    setFilterConfig({})
+    
+    if (safeUploadedData.length > 0) {
+      // Reset all rows to selected
+      const resetData = safeUploadedData.map(col => ({
+        ...col,
+        selectedRows: new Array(col.values.length).fill(true)
+      }))
+      
+      const columnsWithUpdatedStats = resetData.map(col => ({
+        ...col,
+        stats: calculateStats(col)
+      }))
+      
+      const newInsights = analyzeData(columnsWithUpdatedStats)
+      setUploadedData(columnsWithUpdatedStats)
+      setInsights(newInsights)
+      
+      toast.success('All filters cleared')
+    }
+  }, [safeUploadedData, calculateStats, analyzeData, setFilterConfig, setUploadedData, setInsights])
 
   // Generate time-series insights
   const generateTimeSeriesInsights = useCallback((dateColumns: DataColumn[], numericColumns: DataColumn[]): Insight[] => {
@@ -809,6 +1057,9 @@ function App() {
       return
     }
     
+    // Clear existing filters first
+    setFilterConfig({})
+    
     const updatedData = [...safeUploadedData]
     
     updatedData.forEach((column, colIndex) => {
@@ -832,31 +1083,32 @@ function App() {
           column.selectedRows![index] = true
         })
       } else if (type === 'outliers' && column.type === 'number' && column.stats) {
-        // Select values outside 1.5 * IQR (interquartile range)
+        // Use advanced outlier detection
         const numericValues = column.values
-          .map((val, index) => ({ value: Number(val), index }))
-          .filter(item => !isNaN(item.value))
-          .sort((a, b) => a.value - b.value)
+          .map(val => Number(val))
+          .filter(val => !isNaN(val) && isFinite(val))
         
-        const q1Index = Math.floor(numericValues.length * 0.25)
-        const q3Index = Math.floor(numericValues.length * 0.75)
-        const q1 = numericValues[q1Index]?.value || 0
-        const q3 = numericValues[q3Index]?.value || 0
-        const iqr = q3 - q1
-        const lowerBound = q1 - 1.5 * iqr
-        const upperBound = q3 + 1.5 * iqr
-        
-        column.selectedRows = new Array(column.values.length).fill(false)
-        numericValues.forEach(({ value, index }) => {
-          if (value < lowerBound || value > upperBound) {
-            column.selectedRows![index] = true
-          }
-        })
+        if (numericValues.length >= 4) {
+          const outlierFlags = detectOutliers(numericValues, 'iqr', 2)
+          
+          let outlierIndex = 0
+          column.selectedRows = column.values.map((val) => {
+            const numVal = Number(val)
+            if (isNaN(numVal) || !isFinite(numVal)) return false
+            
+            return outlierFlags[outlierIndex++]
+          })
+        } else {
+          column.selectedRows = new Array(column.values.length).fill(false)
+        }
       } else if (type === 'complete') {
         // Select only rows with complete data (no null/empty values)
         column.selectedRows = column.values.map(val => 
           val !== null && val !== undefined && val !== ''
         )
+      } else {
+        // For non-matching types, keep current selection or select all
+        column.selectedRows = column.selectedRows || new Array(column.values.length).fill(true)
       }
     })
     
@@ -865,7 +1117,7 @@ function App() {
     const selectionType = type === 'recent' ? 'recent data' : 
                          type === 'outliers' ? 'outlier values' : 'complete records'
     toast.success(`Applied ${selectionType} selection`)
-  }, [safeUploadedData, updateDataSelection])
+  }, [safeUploadedData, detectOutliers, updateDataSelection, setFilterConfig])
 
   const generateChart = (column: DataColumn, chartType: 'bar' | 'pie' | 'line' = 'bar') => {
     // Add safety checks for column parameter
@@ -1082,8 +1334,9 @@ function App() {
     setUploadedData([])
     setInsights([])
     setFileName('')
+    setFilterConfig({})
     toast.success('Data cleared successfully!')
-  }, [setUploadedData, setInsights, setFileName])
+  }, [setUploadedData, setInsights, setFileName, setFilterConfig])
 
   if (safeUploadedData.length === 0) {
     return (
@@ -1231,6 +1484,426 @@ function App() {
 
           <TabsContent value="selection" className="space-y-6">
             <div className="flex flex-col gap-6">
+              {/* Advanced Filters Section */}
+              <Card>
+                <Collapsible open={showAdvancedFilters} onOpenChange={setShowAdvancedFilters}>
+                  <CollapsibleTrigger asChild>
+                    <CardHeader className="hover:bg-muted/50 cursor-pointer">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Filter className="w-5 h-5" />
+                          <CardTitle>Advanced Filters</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {Object.keys(safeFilterConfig).length > 0 && (
+                            <Badge variant="secondary">
+                              {Object.keys(safeFilterConfig).length} active
+                            </Badge>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              clearAllFilters()
+                            }}
+                          >
+                            Clear All
+                          </Button>
+                        </div>
+                      </div>
+                      <CardDescription>
+                        Apply sophisticated filters including date ranges, outlier detection, and value constraints
+                      </CardDescription>
+                    </CardHeader>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <CardContent className="space-y-6">
+                      {/* Date Range Filter */}
+                      {safeUploadedData.some(col => col?.type === 'date') && (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2">
+                            <CalendarBlank className="w-4 h-4" />
+                            <Label className="text-sm font-medium">Date Range Filter</Label>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <Select
+                              value={safeFilterConfig.dateRange?.columnIndex?.toString() || ''}
+                              onValueChange={(value) => {
+                                const columnIndex = parseInt(value)
+                                const column = safeUploadedData[columnIndex]
+                                if (column?.type === 'date' && column.stats) {
+                                  const minDate = column.stats.min instanceof Date ? column.stats.min : new Date()
+                                  const maxDate = column.stats.max instanceof Date ? column.stats.max : new Date()
+                                  updateFilterConfig({
+                                    dateRange: {
+                                      columnIndex,
+                                      start: minDate.toISOString().split('T')[0],
+                                      end: maxDate.toISOString().split('T')[0]
+                                    }
+                                  })
+                                }
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select date column" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {safeUploadedData
+                                  .map((col, index) => col?.type === 'date' ? { col, index } : null)
+                                  .filter(Boolean)
+                                  .map(({ col, index }) => (
+                                    <SelectItem key={index} value={index.toString()}>
+                                      {col!.name}
+                                    </SelectItem>
+                                  ))
+                                }
+                              </SelectContent>
+                            </Select>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Start Date</Label>
+                              <Input
+                                type="date"
+                                value={safeFilterConfig.dateRange?.start || ''}
+                                onChange={(e) => {
+                                  if (safeFilterConfig.dateRange) {
+                                    updateFilterConfig({
+                                      dateRange: {
+                                        ...safeFilterConfig.dateRange,
+                                        start: e.target.value
+                                      }
+                                    })
+                                  }
+                                }}
+                                disabled={!safeFilterConfig.dateRange}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">End Date</Label>
+                              <Input
+                                type="date"
+                                value={safeFilterConfig.dateRange?.end || ''}
+                                onChange={(e) => {
+                                  if (safeFilterConfig.dateRange) {
+                                    updateFilterConfig({
+                                      dateRange: {
+                                        ...safeFilterConfig.dateRange,
+                                        end: e.target.value
+                                      }
+                                    })
+                                  }
+                                }}
+                                disabled={!safeFilterConfig.dateRange}
+                              />
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const { dateRange, ...rest } = safeFilterConfig
+                                updateFilterConfig(rest)
+                              }}
+                              disabled={!safeFilterConfig.dateRange}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Outlier Detection Filter */}
+                      {safeUploadedData.some(col => col?.type === 'number') && (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2">
+                            <TrendUp className="w-4 h-4" />
+                            <Label className="text-sm font-medium">Statistical Outlier Detection</Label>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <Select
+                              value={safeFilterConfig.outlierDetection?.columnIndex?.toString() || ''}
+                              onValueChange={(value) => {
+                                const columnIndex = parseInt(value)
+                                updateFilterConfig({
+                                  outlierDetection: {
+                                    columnIndex,
+                                    sensitivity: 2,
+                                    method: 'iqr'
+                                  }
+                                })
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select numeric column" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {safeUploadedData
+                                  .map((col, index) => col?.type === 'number' ? { col, index } : null)
+                                  .filter(Boolean)
+                                  .map(({ col, index }) => (
+                                    <SelectItem key={index} value={index.toString()}>
+                                      {col!.name}
+                                    </SelectItem>
+                                  ))
+                                }
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={safeFilterConfig.outlierDetection?.method || 'iqr'}
+                              onValueChange={(method: 'iqr' | 'zscore' | 'modified_zscore') => {
+                                if (safeFilterConfig.outlierDetection) {
+                                  updateFilterConfig({
+                                    outlierDetection: {
+                                      ...safeFilterConfig.outlierDetection,
+                                      method
+                                    }
+                                  })
+                                }
+                              }}
+                              disabled={!safeFilterConfig.outlierDetection}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Method" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="iqr">IQR Method</SelectItem>
+                                <SelectItem value="zscore">Z-Score</SelectItem>
+                                <SelectItem value="modified_zscore">Modified Z-Score</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Sensitivity</Label>
+                              <div className="px-3">
+                                <Slider
+                                  value={[safeFilterConfig.outlierDetection?.sensitivity || 2]}
+                                  onValueChange={([sensitivity]) => {
+                                    if (safeFilterConfig.outlierDetection) {
+                                      updateFilterConfig({
+                                        outlierDetection: {
+                                          ...safeFilterConfig.outlierDetection,
+                                          sensitivity
+                                        }
+                                      })
+                                    }
+                                  }}
+                                  min={1}
+                                  max={3}
+                                  step={1}
+                                  disabled={!safeFilterConfig.outlierDetection}
+                                />
+                                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                                  <span>Conservative</span>
+                                  <span>Aggressive</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {safeFilterConfig.outlierDetection && (() => {
+                                const count = safeUploadedData[safeFilterConfig.outlierDetection.columnIndex]?.selectedRows?.filter(Boolean).length || 0
+                                return `${count} outliers selected`
+                              })()}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const { outlierDetection, ...rest } = safeFilterConfig
+                                updateFilterConfig(rest)
+                              }}
+                              disabled={!safeFilterConfig.outlierDetection}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Value Range Filter */}
+                      {safeUploadedData.some(col => col?.type === 'number') && (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-2">
+                            <TrendDown className="w-4 h-4" />
+                            <Label className="text-sm font-medium">Value Range Filter</Label>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <Select
+                              value={safeFilterConfig.valueRange?.columnIndex?.toString() || ''}
+                              onValueChange={(value) => {
+                                const columnIndex = parseInt(value)
+                                const column = safeUploadedData[columnIndex]
+                                if (column?.type === 'number' && column.stats) {
+                                  updateFilterConfig({
+                                    valueRange: {
+                                      columnIndex,
+                                      min: column.stats.min as number || 0,
+                                      max: column.stats.max as number || 100
+                                    }
+                                  })
+                                }
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select numeric column" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {safeUploadedData
+                                  .map((col, index) => col?.type === 'number' ? { col, index } : null)
+                                  .filter(Boolean)
+                                  .map(({ col, index }) => (
+                                    <SelectItem key={index} value={index.toString()}>
+                                      {col!.name}
+                                    </SelectItem>
+                                  ))
+                                }
+                              </SelectContent>
+                            </Select>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Min Value</Label>
+                              <Input
+                                type="number"
+                                value={safeFilterConfig.valueRange?.min || ''}
+                                onChange={(e) => {
+                                  if (safeFilterConfig.valueRange) {
+                                    updateFilterConfig({
+                                      valueRange: {
+                                        ...safeFilterConfig.valueRange,
+                                        min: parseFloat(e.target.value) || 0
+                                      }
+                                    })
+                                  }
+                                }}
+                                disabled={!safeFilterConfig.valueRange}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Max Value</Label>
+                              <Input
+                                type="number"
+                                value={safeFilterConfig.valueRange?.max || ''}
+                                onChange={(e) => {
+                                  if (safeFilterConfig.valueRange) {
+                                    updateFilterConfig({
+                                      valueRange: {
+                                        ...safeFilterConfig.valueRange,
+                                        max: parseFloat(e.target.value) || 100
+                                      }
+                                    })
+                                  }
+                                }}
+                                disabled={!safeFilterConfig.valueRange}
+                              />
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const { valueRange, ...rest } = safeFilterConfig
+                                updateFilterConfig(rest)
+                              }}
+                              disabled={!safeFilterConfig.valueRange}
+                            >
+                              <X className="w-3 h-3 mr-1" />
+                              Clear
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Text Pattern Filter */}
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <FileSpreadsheet className="w-4 h-4" />
+                          <Label className="text-sm font-medium">Text Pattern Filter</Label>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                          <Select
+                            value={safeFilterConfig.textFilter?.columnIndex?.toString() || ''}
+                            onValueChange={(value) => {
+                              const columnIndex = parseInt(value)
+                              updateFilterConfig({
+                                textFilter: {
+                                  columnIndex,
+                                  pattern: '',
+                                  caseSensitive: false
+                                }
+                              })
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select column" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {safeUploadedData.map((col, index) => (
+                                <SelectItem key={index} value={index.toString()}>
+                                  {col?.name || `Column ${index + 1}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Search Pattern</Label>
+                            <Input
+                              type="text"
+                              placeholder="Enter text to search"
+                              value={safeFilterConfig.textFilter?.pattern || ''}
+                              onChange={(e) => {
+                                if (safeFilterConfig.textFilter) {
+                                  updateFilterConfig({
+                                    textFilter: {
+                                      ...safeFilterConfig.textFilter,
+                                      pattern: e.target.value
+                                    }
+                                  })
+                                }
+                              }}
+                              disabled={!safeFilterConfig.textFilter}
+                            />
+                          </div>
+                          <div className="flex items-center space-x-2 pt-6">
+                            <Checkbox
+                              id="case-sensitive"
+                              checked={safeFilterConfig.textFilter?.caseSensitive || false}
+                              onCheckedChange={(checked) => {
+                                if (safeFilterConfig.textFilter) {
+                                  updateFilterConfig({
+                                    textFilter: {
+                                      ...safeFilterConfig.textFilter,
+                                      caseSensitive: checked as boolean
+                                    }
+                                  })
+                                }
+                              }}
+                              disabled={!safeFilterConfig.textFilter}
+                            />
+                            <Label htmlFor="case-sensitive" className="text-xs">
+                              Case sensitive
+                            </Label>
+                          </div>
+                          <div className="text-xs text-muted-foreground pt-6">
+                            {safeFilterConfig.textFilter && (() => {
+                              const count = safeUploadedData[safeFilterConfig.textFilter.columnIndex]?.selectedRows?.filter(Boolean).length || 0
+                              return `${count} matches`
+                            })()}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const { textFilter, ...rest } = safeFilterConfig
+                              updateFilterConfig(rest)
+                            }}
+                            disabled={!safeFilterConfig.textFilter}
+                          >
+                            <X className="w-3 h-3 mr-1" />
+                            Clear
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
               {/* Smart Selection Presets */}
               <Card>
                 <CardHeader>
