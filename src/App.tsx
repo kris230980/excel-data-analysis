@@ -1225,7 +1225,7 @@ function App() {
                                   className="text-xs flex-1 cursor-pointer truncate"
                                 >
                                   {column.type === 'date' && column.dateValues?.[rowIndex] 
-                                    ? column.dateValues[rowIndex]?.toLocaleDateString()
+                                    ? column.dateValues[rowIndex]!.toLocaleDateString()
                                     : String(value)
                                   }
                                 </Label>
