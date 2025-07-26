@@ -47,17 +47,17 @@ function App() {
     // Find numeric columns for analysis
     const numericColumns = columns.filter(col => col.type === 'number' && col.stats)
     
+    // Always add a basic overview
+    const totalRows = columns[0]?.values.length || 0
+    newInsights.push({
+      type: 'summary',
+      title: 'Dataset Overview',
+      description: `Analyzed ${totalRows} rows across ${columns.length} columns with ${numericColumns.length} numeric metrics`,
+      value: `${totalRows} records`,
+      importance: 'high'
+    })
+    
     if (numericColumns.length > 0) {
-      // Summary insight
-      const totalRows = columns[0]?.values.length || 0
-      newInsights.push({
-        type: 'summary',
-        title: 'Dataset Overview',
-        description: `Analyzed ${totalRows} rows across ${columns.length} columns with ${numericColumns.length} numeric metrics`,
-        value: `${totalRows} records`,
-        importance: 'high'
-      })
-
       // Find highest value column
       const maxColumn = numericColumns.reduce((max, col) => 
         (col.stats!.max || 0) > (max.stats!.max || 0) ? col : max
@@ -93,6 +93,26 @@ function App() {
           importance: 'medium'
         })
       }
+    } else {
+      // Add insights for text-based data
+      const textColumns = columns.filter(col => col.type === 'text')
+      
+      if (textColumns.length > 0) {
+        newInsights.push({
+          type: 'summary',
+          title: 'Text Data Detected',
+          description: `Your dataset contains ${textColumns.length} text columns. Consider formatting numeric data as numbers for statistical analysis.`,
+          importance: 'medium'
+        })
+        
+        // Show column types
+        newInsights.push({
+          type: 'summary',
+          title: 'Column Types',
+          description: `Columns detected: ${columns.map(col => `${col.name} (${col.type})`).join(', ')}`,
+          importance: 'low'
+        })
+      }
     }
 
     return newInsights.slice(0, 5) // Limit to 5 insights
@@ -125,21 +145,30 @@ function App() {
       const columns: DataColumn[] = headers.map((header, index) => {
         const values = rows.map(row => row[index]).filter(val => val !== undefined && val !== null && val !== '')
         
-        // Determine column type
-        const isNumeric = values.every(val => !isNaN(Number(val)) && val !== '')
+        // Determine column type - check if at least 80% of values are numeric
+        const numericCount = values.filter(val => {
+          const num = Number(val)
+          return !isNaN(num) && isFinite(num)
+        }).length
+        const isNumeric = values.length > 0 && (numericCount / values.length) >= 0.8
         const type = isNumeric ? 'number' : 'text'
         
         // Calculate statistics for numeric columns
         let stats: DataColumn['stats'] = { count: values.length }
         
         if (type === 'number') {
-          const numericValues = values.map(val => Number(val))
-          stats = {
-            count: values.length,
-            min: Math.min(...numericValues),
-            max: Math.max(...numericValues),
-            avg: numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
-            sum: numericValues.reduce((a, b) => a + b, 0)
+          const numericValues = values
+            .map(val => Number(val))
+            .filter(val => !isNaN(val) && isFinite(val))
+          
+          if (numericValues.length > 0) {
+            stats = {
+              count: values.length,
+              min: Math.min(...numericValues),
+              max: Math.max(...numericValues),
+              avg: numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
+              sum: numericValues.reduce((a, b) => a + b, 0)
+            }
           }
         }
         
@@ -156,12 +185,15 @@ function App() {
       // Generate insights
       const generatedInsights = analyzeData(columns)
       
+      console.log('Processed columns:', columns.map(col => ({ name: col.name, type: col.type, count: col.stats?.count })))
+      console.log('Generated insights:', generatedInsights)
+      
       // Update state
       setUploadedData(columns)
       setInsights(generatedInsights)
       setFileName(file.name)
       
-      toast.success('File processed successfully!')
+      toast.success(`File processed successfully! Found ${columns.length} columns and generated ${generatedInsights.length} insights.`)
       
     } catch (error) {
       toast.error(`Error processing file: ${error instanceof Error ? error.message : 'Unknown error'}`)
