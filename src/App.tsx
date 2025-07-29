@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
-import * as XLSX from 'xlsx'
+import { read as readXLSX, utils as xlsxUtils } from 'xlsx'
 import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X, Filter, CalendarBlank, TrendDown, TrendUp } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -790,10 +790,10 @@ function App() {
       const buffer = await file.arrayBuffer()
       setProcessingStep('Parsing Excel data...')
       
-      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      const workbook = readXLSX(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+      const jsonData = xlsxUtils.sheet_to_json(worksheet, { header: 1 })
       
       if (jsonData.length === 0) {
         throw new Error('No data found in the Excel file')
