@@ -104,6 +104,12 @@ function App() {
   const [insights, setInsights] = useKV<Insight[]>('data-insights', [])
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStep, setProcessingStep] = useState('')
+
+  const [customChartConfig, setCustomChartConfig] = useState<{
+    xAxis: string;
+    yAxis: string;
+    chartType: 'bar' | 'line' | 'scatter' | 'area';
+  }>({ xAxis: '', yAxis: '', chartType: 'bar' })
   const [fileName, setFileName] = useKV<string>('file-name', '')
   const [showDataSelection, setShowDataSelection] = useState(false)
   const [hasError, setHasError] = useState(false)
