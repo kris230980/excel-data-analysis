@@ -15,7 +15,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie } from 'recharts'
+import { DataTable } from '@/components/DataTable'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie, Tooltip, Legend, AreaChart, Area } from 'recharts'
+
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="custom-chart-tooltip">
+        <p className="font-semibold text-foreground">{label}</p>
+        <p className="text-primary mt-1">
+          {payload[0].name}: {payload[0].value}
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
 
 interface DataColumn {
   name: string
@@ -1218,11 +1234,18 @@ function App() {
     if (chartType === 'bar') {
       return (
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Bar dataKey="value" fill={CHART_COLORS[0]} />
+          <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <defs>
+              <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-primary)" stopOpacity={0.8}/>
+                <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0.1}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" />
+            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: "var(--color-muted-foreground)", fontSize: 12}} dy={10} />
+            <YAxis axisLine={false} tickLine={false} tick={{fill: "var(--color-muted-foreground)", fontSize: 12}} />
+            <Tooltip content={<CustomTooltip />} />
+            <Bar dataKey="value" fill="url(#colorValue)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       )
@@ -1230,9 +1253,20 @@ function App() {
       return (
         <ResponsiveContainer width="100%" height={200}>
           <RechartsPieChart>
-            <Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80}>
+            <Tooltip content={<CustomTooltip />} />
+            <Pie 
+              data={chartData} 
+              dataKey="value" 
+              nameKey="name" 
+              cx="50%" 
+              cy="50%" 
+              outerRadius={80} 
+              innerRadius={60}
+              paddingAngle={5}
+              stroke="none"
+            >
               {chartData.map((_, index) => (
-                <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                <Cell key={`cell-${index}`} fill={`var(--color-chart-${(index % 5) + 1})`} />
               ))}
             </Pie>
           </RechartsPieChart>
@@ -2332,91 +2366,7 @@ function App() {
           </TabsContent>
 
           <TabsContent value="data" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {safeUploadedData.filter(column => column && column.values && column.stats).map((column, index) => (
-                <Card key={index}>
-                  <CardHeader>
-                    <CardTitle className="text-lg">{column.name}</CardTitle>
-                    <CardDescription>
-                      Type: {column.type} • {column.stats?.count} values
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {column.type === 'number' && column.stats && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Min:</span>
-                          <span className="font-medium">{(column.stats.min as number)?.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Max:</span>
-                          <span className="font-medium">{(column.stats.max as number)?.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Average:</span>
-                          <span className="font-medium">
-                            {column.stats.avg?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                        <Separator />
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Sum:</span>
-                          <span className="font-medium">{column.stats.sum?.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    )}
-                    {column.type === 'date' && column.stats && (
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Earliest:</span>
-                          <span className="font-medium">
-                            {(column.stats.min as Date) instanceof Date && !isNaN((column.stats.min as Date).getTime())
-                              ? (column.stats.min as Date).toLocaleDateString()
-                              : 'Invalid date'
-                            }
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Latest:</span>
-                          <span className="font-medium">
-                            {(column.stats.max as Date) instanceof Date && !isNaN((column.stats.max as Date).getTime())
-                              ? (column.stats.max as Date).toLocaleDateString()
-                              : 'Invalid date'
-                            }
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Pattern:</span>
-                          <Badge variant="outline">{column.stats.frequency}</Badge>
-                        </div>
-                        <Separator />
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Span:</span>
-                          <span className="font-medium">{column.stats.dateRange}</span>
-                        </div>
-                        {column.stats.formatSummary && (
-                          <>
-                            <Separator />
-                            <div className="space-y-1">
-                              <span className="text-muted-foreground text-sm">Detected Formats:</span>
-                              <div className="text-xs text-muted-foreground break-words">
-                                {column.stats.formatSummary}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    {column.type === 'text' && (
-                      <div className="text-muted-foreground">
-                        Preview: {column.values.slice(0, 3).join(', ')}
-                        {column.values.length > 3 && '...'}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <DataTable columnsData={safeUploadedData} />
           </TabsContent>
         </Tabs>
       </div>

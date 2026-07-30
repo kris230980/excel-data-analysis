@@ -5,37 +5,77 @@
   * {
     @apply border-border;
   }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
 }
 
 :root {
-  /* Base colors for clean, professional appearance */
-  --background: oklch(0.99 0.00 0); /* Pure white for clean backdrop */
-  --foreground: oklch(0.25 0.00 0); /* Dark gray for primary text */
+  /* Light Mode - Premium White/Gray with vibrant accents */
+  --background: oklch(0.98 0.00 0);
+  --foreground: oklch(0.15 0.02 240);
 
-  --card: oklch(0.98 0.00 0); /* Very light gray for card backgrounds */
-  --card-foreground: oklch(0.25 0.00 0); /* Dark gray text on cards */
-  --popover: oklch(0.99 0.00 0); /* White for popovers */
-  --popover-foreground: oklch(0.25 0.00 0); /* Dark gray for popover text */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.15 0.02 240);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.15 0.02 240);
 
-  /* Action colors for professional data interface */
-  --primary: oklch(0.37 0.15 264); /* Deep blue for trust and professionalism */
-  --primary-foreground: oklch(0.99 0.00 0); /* White text on primary */
-  --secondary: oklch(0.57 0.02 264); /* Medium gray for secondary actions */
-  --secondary-foreground: oklch(0.99 0.00 0); /* White text on secondary */
-  --accent: oklch(0.64 0.20 41); /* Vibrant orange for CTAs and highlights */
-  --accent-foreground: oklch(0.99 0.00 0); /* White text on accent */
-  --destructive: oklch(0.54 0.22 17); /* Professional red for warnings */
-  --destructive-foreground: oklch(0.99 0.00 0); /* White text on destructive */
+  --primary: oklch(0.45 0.2 260); /* Vibrant Indigo */
+  --primary-foreground: oklch(0.99 0.00 0);
+  --secondary: oklch(0.95 0.02 240);
+  --secondary-foreground: oklch(0.25 0.05 260);
+  --accent: oklch(0.95 0.02 240);
+  --accent-foreground: oklch(0.25 0.05 260);
+  --destructive: oklch(0.54 0.22 17);
+  --destructive-foreground: oklch(0.99 0.00 0);
 
-  /* Supporting UI colors for clean data presentation */
-  --muted: oklch(0.96 0.00 0); /* Light gray for de-emphasized content */
-  --muted-foreground: oklch(0.46 0.00 0); /* Medium gray for muted text */
-  --border: oklch(0.92 0.00 0); /* Light border color */
-  --input: oklch(0.92 0.00 0); /* Input border color */
-  --ring: oklch(0.37 0.15 264); /* Focus ring matches primary */
+  --muted: oklch(0.95 0.02 240);
+  --muted-foreground: oklch(0.55 0.02 240);
+  --border: oklch(0.9 0.02 240);
+  --input: oklch(0.9 0.02 240);
+  --ring: oklch(0.45 0.2 260);
 
-  /* Professional rounded corners for modern feel */
-  --radius: 0.5rem;
+  --radius: 0.75rem;
+
+  /* Chart Colors - Vibrant Palette */
+  --chart-1: oklch(0.64 0.20 41); /* Vibrant Orange */
+  --chart-2: oklch(0.60 0.18 284); /* Bright Blue */
+  --chart-3: oklch(0.70 0.18 160); /* Bright Teal */
+  --chart-4: oklch(0.65 0.22 340); /* Vibrant Pink */
+  --chart-5: oklch(0.85 0.15 80); /* Sunny Yellow */
+}
+
+.dark, [data-appearance="dark"] {
+  /* Dark Mode - Deep Slate/Navy */
+  --background: oklch(0.12 0.01 260);
+  --foreground: oklch(0.95 0.02 260);
+
+  --card: oklch(0.16 0.02 260);
+  --card-foreground: oklch(0.95 0.02 260);
+  --popover: oklch(0.16 0.02 260);
+  --popover-foreground: oklch(0.95 0.02 260);
+
+  --primary: oklch(0.65 0.2 260); /* Bright Indigo */
+  --primary-foreground: oklch(0.12 0.01 260);
+  --secondary: oklch(0.25 0.03 260);
+  --secondary-foreground: oklch(0.95 0.02 260);
+  --accent: oklch(0.25 0.03 260);
+  --accent-foreground: oklch(0.95 0.02 260);
+  --destructive: oklch(0.6 0.22 17);
+  --destructive-foreground: oklch(0.99 0.00 0);
+
+  --muted: oklch(0.25 0.03 260);
+  --muted-foreground: oklch(0.65 0.02 260);
+  --border: oklch(0.25 0.03 260);
+  --input: oklch(0.25 0.03 260);
+  --ring: oklch(0.65 0.2 260);
+
+  /* Chart Colors (Dark mode adjusted) */
+  --chart-1: oklch(0.64 0.20 41);
+  --chart-2: oklch(0.70 0.18 284);
+  --chart-3: oklch(0.80 0.18 160);
+  --chart-4: oklch(0.75 0.22 340);
+  --chart-5: oklch(0.90 0.15 80);
 }
 
 @theme {
@@ -59,13 +99,37 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) * 1.5);
-  --radius-xl: calc(var(--radius) * 2);
-  --radius-2xl: calc(var(--radius) * 3);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
   --radius-full: 9999px;
 
-  /* Inter font family for professional appearance */
   --font-family-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Glassmorphism utilities */
+.glass {
+  @apply bg-background/70 backdrop-blur-md border border-border shadow-sm;
+}
+.glass-card {
+  @apply bg-card/60 backdrop-blur-lg border border-border/50 shadow-lg transition-all duration-300;
+}
+.glass-card:hover {
+  @apply shadow-xl border-primary/30 translate-y-[-2px];
+}
+
+/* Custom Chart Tooltip */
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+.custom-chart-tooltip {
+  @apply bg-popover/90 backdrop-blur-md border border-border shadow-xl rounded-lg p-3 text-sm;
 }
