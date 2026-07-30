@@ -39,7 +39,10 @@ Try it out here: [https://kris230980.github.io/excel-data-analysis/](https://kri
 
 ## Acknowledgements
 
-A special thanks to the [ezDecode/Excel-Analytics-Platform](https://github.com/ezDecode/Excel-Analytics-Platform) repository for inspiring the addition of our **PDF Dashboard Exporting** and **Advanced Statistical Analysis** features. We appreciate the open-source community for sharing great ideas!
+- A special thanks to the [ezDecode/Excel-Analytics-Platform](https://github.com/ezDecode/Excel-Analytics-Platform) repository for inspiring the addition of our **PDF Dashboard Exporting** and **Advanced Statistical Analysis** features. 
+- A big thank you to [tahiruddinahmed/Excel-Analytics-Platform](https://github.com/tahiruddinahmed/Excel-Analytics-Platform) for inspiring the **Custom Chart Builder** architecture, which gives our users maximum analytical flexibility.
+
+We appreciate the open-source community for sharing great ideas!
 
 ## Contributing & Collaboration
 
