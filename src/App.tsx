@@ -16,6 +16,9 @@ import { Slider } from '@/components/ui/slider'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { toast } from 'sonner'
 import { DataTable } from '@/components/DataTable'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
+import * as ss from 'simple-statistics'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie, Tooltip, Legend, AreaChart, Area } from 'recharts'
 
 
@@ -44,6 +47,8 @@ interface DataColumn {
     max?: number | Date
     avg?: number
     sum?: number
+    stdDev?: number
+    variance?: number
     count: number
     dateRange?: string // For date columns
     frequency?: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'irregular'
@@ -349,7 +354,9 @@ function App() {
         min: Math.min(...selectedValues),
         max: Math.max(...selectedValues),
         avg: selectedValues.reduce((a, b) => a + b, 0) / selectedValues.length,
-        sum: selectedValues.reduce((a, b) => a + b, 0)
+        sum: selectedValues.reduce((a, b) => a + b, 0),
+        stdDev: selectedValues.length > 1 ? ss.standardDeviation(selectedValues) : 0,
+        variance: selectedValues.length > 1 ? ss.variance(selectedValues) : 0
       }
     }
 
@@ -932,7 +939,9 @@ function App() {
               min: Math.min(...numericValues),
               max: Math.max(...numericValues),
               avg: numericValues.reduce((a, b) => a + b, 0) / numericValues.length,
-              sum: numericValues.reduce((a, b) => a + b, 0)
+              sum: numericValues.reduce((a, b) => a + b, 0),
+              stdDev: numericValues.length > 1 ? ss.standardDeviation(numericValues) : 0,
+              variance: numericValues.length > 1 ? ss.variance(numericValues) : 0
             }
           }
         }
@@ -1338,52 +1347,29 @@ function App() {
     )
   }
 
-  const exportInfographic = useCallback(() => {
-    // Create a simple HTML export
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Data Analysis Report - ${fileName}</title>
-        <style>
-          body { font-family: 'Inter', sans-serif; margin: 40px; background: #f8fafc; }
-          .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-          .header { text-align: center; margin-bottom: 40px; }
-          .insight { padding: 20px; margin: 20px 0; background: #f1f5f9; border-radius: 8px; border-left: 4px solid #1e40af; }
-          .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }
-          .stat-card { padding: 20px; background: #1e40af; color: white; border-radius: 8px; text-align: center; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>Data Analysis Report</h1>
-            <p>Generated from: ${fileName}</p>
-          </div>
-          ${safeInsights.map(insight => `
-            <div class="insight">
-              <h3>${insight.title}</h3>
-              <p>${insight.description}</p>
-              ${insight.value ? `<strong>Value: ${insight.value}</strong>` : ''}
-            </div>
-          `).join('')}
-        </div>
-      </body>
-      </html>
-    `
+  const exportInfographic = useCallback(async () => {
+    const element = document.getElementById('dashboard-container')
+    if (!element) return
     
-    const blob = new Blob([htmlContent], { type: 'text/html' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${fileName.replace(/\.[^/.]+$/, '')}_analysis_report.html`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    
-    toast.success('Infographic exported successfully!')
-  }, [fileName, safeInsights])
+    try {
+      toast.info('Generating PDF report...', { id: 'pdf-export' })
+      // Use html2canvas to capture the visible dashboard area
+      const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' })
+      const imgData = canvas.toDataURL('image/png')
+      
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight)
+      pdf.save(`${fileName.split('.')[0] || 'analysis'}-report.pdf`)
+      
+      toast.success('Report exported successfully!', { id: 'pdf-export' })
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      toast.error('Failed to generate PDF', { id: 'pdf-export' })
+    }
+  }, [fileName])
 
   const clearData = useCallback(() => {
     setUploadedData([])
@@ -1473,7 +1459,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background p-6">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto" id="dashboard-container">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Data Analysis Results</h1>
