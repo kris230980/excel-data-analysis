@@ -2406,7 +2406,7 @@ function App() {
                         <SelectValue placeholder="Select Y-Axis" />
                       </SelectTrigger>
                       <SelectContent>
-                        {safeUploadedData.filter(col => col.type === 'number').map(col => (
+                        {safeUploadedData.map(col => (
                           <SelectItem key={`y-${col.name}`} value={col.name}>{col.name}</SelectItem>
                         ))}
                       </SelectContent>
