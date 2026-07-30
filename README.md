@@ -36,3 +36,9 @@ Try it out here: [https://kris230980.github.io/excel-data-analysis/](https://kri
    ```bash
    npm run dev
    ```
+
+## Contributing & Collaboration
+
+We absolutely welcome collaboration! Whether you want to fix a bug, add a new visualization type, or suggest an architectural improvement, your contributions are highly appreciated. 
+
+Feel free to open an issue to discuss your ideas or submit a Pull Request directly. Let's build the best client-side data analysis tool together!
