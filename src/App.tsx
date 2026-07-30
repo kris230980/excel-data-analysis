@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react'
 import { useKV } from '@github/spark/hooks'
 import { read as readXLSX, utils as xlsxUtils } from 'xlsx'
-import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X, Filter, CalendarBlank, TrendDown, TrendUp } from '@phosphor-icons/react'
+import { Upload, BarChart3, Download, FileSpreadsheet, TrendingUp, PieChart, Calendar, Clock, Funnel, Check, X, Filter, CalendarBlank, TrendDown, TrendUp , Wrench } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -19,7 +19,7 @@ import { DataTable } from '@/components/DataTable'
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 import * as ss from 'simple-statistics'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie, Tooltip, Legend, AreaChart, Area } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart as RechartsPieChart, Cell, LineChart, Line, Pie, Tooltip, Legend, AreaChart, Area , ScatterChart, Scatter } from 'recharts'
 
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -1477,7 +1477,7 @@ function App() {
         </div>
 
         <Tabs defaultValue="insights" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="insights" className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
               Insights
@@ -1497,6 +1497,11 @@ function App() {
             <TabsTrigger value="data" className="flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4" />
               Data
+            </TabsTrigger>
+          
+            <TabsTrigger value="builder" className="flex items-center gap-2">
+              <Wrench className="w-4 h-4" />
+              Builder
             </TabsTrigger>
           </TabsList>
 
@@ -2354,7 +2359,146 @@ function App() {
           <TabsContent value="data" className="space-y-6">
             <DataTable columnsData={safeUploadedData} />
           </TabsContent>
-        </Tabs>
+        
+          <TabsContent value="builder" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wrench className="w-5 h-5 text-primary" />
+                  Custom Chart Builder
+                </CardTitle>
+                <div className="text-sm text-muted-foreground">
+                  Select any two columns to plot against each other and choose your preferred chart type.
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="space-y-2">
+                    <Label>X-Axis Column</Label>
+                    <Select 
+                      value={customChartConfig.xAxis} 
+                      onValueChange={(v) => setCustomChartConfig(prev => ({ ...prev, xAxis: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select X-Axis" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {safeUploadedData.map(col => (
+                          <SelectItem key={`x-${col.name}`} value={col.name}>{col.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Y-Axis Column (Numeric)</Label>
+                    <Select 
+                      value={customChartConfig.yAxis} 
+                      onValueChange={(v) => setCustomChartConfig(prev => ({ ...prev, yAxis: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Y-Axis" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {safeUploadedData.filter(col => col.type === 'number').map(col => (
+                          <SelectItem key={`y-${col.name}`} value={col.name}>{col.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label>Chart Type</Label>
+                    <Select 
+                      value={customChartConfig.chartType} 
+                      onValueChange={(v) => setCustomChartConfig(prev => ({ ...prev, chartType: v as any }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Chart Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="bar">Bar Chart</SelectItem>
+                        <SelectItem value="line">Line Chart</SelectItem>
+                        <SelectItem value="area">Area Chart</SelectItem>
+                        <SelectItem value="scatter">Scatter Plot</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {customChartConfig.xAxis && customChartConfig.yAxis ? (
+                  <div className="h-[400px] w-full border rounded-xl p-4 bg-slate-50/50">
+                    <ResponsiveContainer width="100%" height="100%">
+                      {customChartConfig.chartType === 'bar' ? (
+                        <BarChart data={
+                          safeUploadedData.find(c => c.name === customChartConfig.xAxis)?.values.slice(0, 500).map((xVal, i) => ({
+                            name: String(xVal),
+                            value: Number(safeUploadedData.find(c => c.name === customChartConfig.yAxis)?.values[i]) || 0
+                          })) || []
+                        }>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis fontSize={12} tickLine={false} axisLine={false} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      ) : customChartConfig.chartType === 'line' ? (
+                        <LineChart data={
+                          safeUploadedData.find(c => c.name === customChartConfig.xAxis)?.values.slice(0, 500).map((xVal, i) => ({
+                            name: String(xVal),
+                            value: Number(safeUploadedData.find(c => c.name === customChartConfig.yAxis)?.values[i]) || 0
+                          })) || []
+                        }>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis fontSize={12} tickLine={false} axisLine={false} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={false} />
+                        </LineChart>
+                      ) : customChartConfig.chartType === 'area' ? (
+                        <AreaChart data={
+                          safeUploadedData.find(c => c.name === customChartConfig.xAxis)?.values.slice(0, 500).map((xVal, i) => ({
+                            name: String(xVal),
+                            value: Number(safeUploadedData.find(c => c.name === customChartConfig.yAxis)?.values[i]) || 0
+                          })) || []
+                        }>
+                          <defs>
+                            <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis fontSize={12} tickLine={false} axisLine={false} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorValue)" />
+                        </AreaChart>
+                      ) : (
+                        <ScatterChart>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <XAxis type="category" dataKey="name" name={customChartConfig.xAxis} fontSize={12} tickLine={false} axisLine={false} />
+                          <YAxis type="number" dataKey="value" name={customChartConfig.yAxis} fontSize={12} tickLine={false} axisLine={false} />
+                          <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Scatter data={
+                            safeUploadedData.find(c => c.name === customChartConfig.xAxis)?.values.slice(0, 500).map((xVal, i) => ({
+                              name: String(xVal),
+                              value: Number(safeUploadedData.find(c => c.name === customChartConfig.yAxis)?.values[i]) || 0
+                            })) || []
+                          } fill="#3b82f6" />
+                        </ScatterChart>
+                      )}
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="h-[400px] w-full border border-dashed rounded-xl flex items-center justify-center bg-slate-50 text-muted-foreground">
+                    Select X and Y axes to generate your custom chart
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+  </Tabs>
       </div>
     </div>
   )
