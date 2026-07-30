@@ -37,6 +37,10 @@ Try it out here: [https://kris230980.github.io/excel-data-analysis/](https://kri
    npm run dev
    ```
 
+## Acknowledgements
+
+A special thanks to the [ezDecode/Excel-Analytics-Platform](https://github.com/ezDecode/Excel-Analytics-Platform) repository for inspiring the addition of our **PDF Dashboard Exporting** and **Advanced Statistical Analysis** features. We appreciate the open-source community for sharing great ideas!
+
 ## Contributing & Collaboration
 
 We absolutely welcome collaboration! Whether you want to fix a bug, add a new visualization type, or suggest an architectural improvement, your contributions are highly appreciated. 
