@@ -2,7 +2,7 @@
 
 A secure, client-side React application for analyzing and visualizing Excel and CSV data directly in your browser. 
 
-![Data Analysis Dashboard](public/screenshot.png)
+![Data Analysis Dashboard](public/dashboard-preview.png)
 
 ## Overview
 
